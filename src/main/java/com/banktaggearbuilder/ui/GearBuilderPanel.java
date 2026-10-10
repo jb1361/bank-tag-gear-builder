@@ -1,0 +1,624 @@
+package com.banktaggearbuilder.ui;
+
+import com.banktaggearbuilder.BankTagGearBuilderConfig;
+import com.banktaggearbuilder.BankTagGearBuilderPlugin;
+import com.banktaggearbuilder.BankTagWriter;
+import com.banktaggearbuilder.model.BuildResult;
+import com.banktaggearbuilder.model.ContentPage;
+import com.banktaggearbuilder.model.GearSetup;
+import com.banktaggearbuilder.model.GeneratedTag;
+import com.banktaggearbuilder.model.StrategyPage;
+import com.banktaggearbuilder.model.TagStatus;
+import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Component;
+import java.awt.Dimension;
+import java.awt.FlowLayout;
+import java.awt.GridLayout;
+import java.awt.Toolkit;
+import java.awt.datatransfer.StringSelection;
+import java.awt.event.KeyAdapter;
+import java.awt.event.KeyEvent;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import javax.swing.BorderFactory;
+import javax.swing.Box;
+import javax.swing.BoxLayout;
+import javax.swing.DefaultComboBoxModel;
+import javax.swing.DefaultListCellRenderer;
+import javax.swing.DefaultListModel;
+import javax.swing.JButton;
+import javax.swing.JComboBox;
+import javax.swing.JLabel;
+import javax.swing.JList;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.ListSelectionModel;
+import javax.swing.SwingConstants;
+import javax.swing.border.EmptyBorder;
+import net.runelite.client.game.ItemManager;
+import net.runelite.client.ui.ColorScheme;
+import net.runelite.client.ui.FontManager;
+import net.runelite.client.ui.PluginPanel;
+import net.runelite.client.ui.components.IconTextField;
+import net.runelite.client.util.QuantityFormatter;
+
+public class GearBuilderPanel extends PluginPanel
+{
+	private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+	private static final Color UPDATE_COLOR = ColorScheme.BRAND_ORANGE;
+	private static final Color OK_COLOR = ColorScheme.PROGRESS_COMPLETE_COLOR;
+	private static final Color MUTED = ColorScheme.LIGHT_GRAY_COLOR;
+
+	private final BankTagGearBuilderPlugin plugin;
+	private final ItemManager itemManager;
+	private final BankTagGearBuilderConfig config;
+
+	private final JLabel statusLabel = new JLabel();
+	private final IconTextField searchField = new IconTextField();
+	private final DefaultListModel<ContentPage> listModel = new DefaultListModel<>();
+	private final JList<ContentPage> contentList = new JList<>(listModel);
+	private final JComboBox<GearSetup> setupCombo = new JComboBox<>();
+	private final JLabel sourceLabel = new JLabel();
+	private final JButton buildButton = new JButton("Build setup");
+	private final JButton createButton = new JButton("Create tag");
+	private final JButton copyButton = new JButton("Copy import string");
+	private final JPanel actionRow = new JPanel(new GridLayout(1, 2, 4, 0));
+	private final JPanel resultPanel = new JPanel();
+	private final JPanel generatedPanel = new JPanel();
+	private final JButton refreshButton = new JButton("Refresh all");
+
+	private List<ContentPage> allContent = new ArrayList<>();
+	private boolean contentLoading;
+	private ContentPage selectedContent;
+	private StrategyPage currentPage;
+	private BuildResult currentResult;
+
+	public GearBuilderPanel(BankTagGearBuilderPlugin plugin, ItemManager itemManager, BankTagGearBuilderConfig config)
+	{
+		super();
+		this.plugin = plugin;
+		this.itemManager = itemManager;
+		this.config = config;
+
+		setLayout(new BorderLayout());
+		setBackground(ColorScheme.DARK_GRAY_COLOR);
+
+		JPanel container = new JPanel();
+		container.setLayout(new BoxLayout(container, BoxLayout.Y_AXIS));
+		container.setBackground(ColorScheme.DARK_GRAY_COLOR);
+
+		JLabel title = new JLabel("Bank Tag Gear Builder");
+		title.setFont(FontManager.getRunescapeBoldFont());
+		title.setForeground(Color.WHITE);
+		container.add(title);
+		container.add(Box.createVerticalStrut(4));
+
+		statusLabel.setFont(FontManager.getRunescapeSmallFont());
+		statusLabel.setForeground(MUTED);
+		container.add(statusLabel);
+		container.add(Box.createVerticalStrut(8));
+
+		container.add(header("1. Pick content"));
+		searchField.setIcon(IconTextField.Icon.SEARCH);
+		searchField.setPreferredSize(new Dimension(PANEL_WIDTH - 20, 30));
+		searchField.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		searchField.addKeyListener(new KeyAdapter()
+		{
+			@Override
+			public void keyReleased(KeyEvent e)
+			{
+				filterContent();
+			}
+		});
+		searchField.addClearListener(this::filterContent);
+		container.add(searchField);
+		container.add(Box.createVerticalStrut(4));
+
+		contentList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+		contentList.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		contentList.setVisibleRowCount(8);
+		contentList.addListSelectionListener(e ->
+		{
+			if (!e.getValueIsAdjusting() && contentList.getSelectedValue() != null)
+			{
+				selectContent(contentList.getSelectedValue());
+			}
+		});
+		JScrollPane listScroll = new JScrollPane(contentList);
+		listScroll.setPreferredSize(new Dimension(PANEL_WIDTH - 20, 160));
+		listScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, 160));
+		container.add(listScroll);
+		container.add(Box.createVerticalStrut(8));
+
+		container.add(header("2. Choose setup"));
+		setupCombo.setRenderer(new DefaultListCellRenderer()
+		{
+			@Override
+			public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus)
+			{
+				super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+				if (value instanceof GearSetup)
+				{
+					String style = ((GearSetup) value).getStyle();
+					setText(style.isEmpty() ? "Default setup" : style);
+				}
+				return this;
+			}
+		});
+		setupCombo.setEnabled(false);
+		container.add(setupCombo);
+		container.add(Box.createVerticalStrut(4));
+
+		sourceLabel.setFont(FontManager.getRunescapeSmallFont());
+		sourceLabel.setForeground(MUTED);
+		setWrapped(sourceLabel, "Select content above");
+		container.add(sourceLabel);
+		container.add(Box.createVerticalStrut(4));
+
+		buildButton.setEnabled(false);
+		buildButton.addActionListener(e -> build());
+		container.add(buildButton);
+		container.add(Box.createVerticalStrut(8));
+
+		container.add(header("3. Result"));
+		resultPanel.setLayout(new BoxLayout(resultPanel, BoxLayout.Y_AXIS));
+		resultPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		container.add(resultPanel);
+
+		createButton.addActionListener(e -> doCreate());
+		copyButton.addActionListener(e -> doCopy());
+		actionRow.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		actionRow.add(createButton);
+		actionRow.add(copyButton);
+		actionRow.setVisible(false);
+		container.add(actionRow);
+		container.add(Box.createVerticalStrut(12));
+
+		JPanel genHeader = new JPanel(new BorderLayout());
+		genHeader.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		genHeader.add(header("Generated tags"), BorderLayout.WEST);
+		refreshButton.setFont(FontManager.getRunescapeSmallFont());
+		refreshButton.setToolTipText("Re-fetch each tag's wiki page and re-check every tag against your bank");
+		refreshButton.addActionListener(e ->
+		{
+			refreshButton.setEnabled(false);
+			plugin.refreshSources(msg ->
+			{
+				refreshButton.setEnabled(true);
+				setWrapped(statusLabel, msg);
+			});
+		});
+		genHeader.add(refreshButton, BorderLayout.EAST);
+		container.add(genHeader);
+		container.add(Box.createVerticalStrut(4));
+
+		generatedPanel.setLayout(new BoxLayout(generatedPanel, BoxLayout.Y_AXIS));
+		generatedPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		container.add(generatedPanel);
+
+		add(container, BorderLayout.NORTH);
+		onConfigChanged();
+		updateStatusLabel();
+	}
+
+	@Override
+	public void onActivate()
+	{
+		updateStatusLabel();
+		if (allContent.isEmpty() && !contentLoading)
+		{
+			contentLoading = true;
+			setWrapped(statusLabel, "Loading content list from the OSRS Wiki...");
+			plugin.loadContent(pages ->
+			{
+				contentLoading = false;
+				allContent = pages;
+				filterContent();
+				updateStatusLabel();
+			}, err ->
+			{
+				contentLoading = false;
+				setWrapped(statusLabel, err);
+			});
+		}
+	}
+
+	public void onConfigChanged()
+	{
+		switch (config.outputMode())
+		{
+			case CREATE_TAG:
+				buildButton.setText("Build and create tag");
+				break;
+			case COPY_IMPORT_STRING:
+				buildButton.setText("Build and copy import string");
+				break;
+			default:
+				buildButton.setText("Build setup");
+				break;
+		}
+	}
+
+	private void updateStatusLabel()
+	{
+		if (!plugin.isLoggedIn())
+		{
+			setWrapped(statusLabel, "Log in to match gear against your bank.");
+		}
+		else if (!plugin.isBankSeen())
+		{
+			setWrapped(statusLabel, "Open your bank once so the plugin can see what you own.");
+		}
+		else
+		{
+			setWrapped(statusLabel, "Source: OSRS Wiki. Bank seen this session.");
+		}
+	}
+
+	private void filterContent()
+	{
+		String q = searchField.getText() == null ? "" : searchField.getText().trim().toLowerCase(Locale.ROOT);
+		ContentPage selected = contentList.getSelectedValue();
+		listModel.clear();
+		for (ContentPage page : allContent)
+		{
+			if (q.isEmpty() || page.getDisplayName().toLowerCase(Locale.ROOT).contains(q))
+			{
+				listModel.addElement(page);
+			}
+		}
+		if (selected != null && listModel.contains(selected))
+		{
+			contentList.setSelectedValue(selected, false);
+		}
+	}
+
+	private void selectContent(ContentPage page)
+	{
+		if (page.equals(selectedContent))
+		{
+			// Re-selected after the list was filtered; nothing to fetch
+			return;
+		}
+		selectedContent = page;
+		currentPage = null;
+		currentResult = null;
+		setupCombo.setModel(new DefaultComboBoxModel<>());
+		setupCombo.setEnabled(false);
+		buildButton.setEnabled(false);
+		actionRow.setVisible(false);
+		resultPanel.removeAll();
+		resultPanel.revalidate();
+		setWrapped(sourceLabel, "Fetching " + page.getDisplayName() + "...");
+
+		plugin.fetchStrategy(page, sp ->
+		{
+			if (contentList.getSelectedValue() == null || !contentList.getSelectedValue().equals(page))
+			{
+				return;
+			}
+			currentPage = sp;
+			DefaultComboBoxModel<GearSetup> model = new DefaultComboBoxModel<>();
+			for (GearSetup s : sp.getSetups())
+			{
+				model.addElement(s);
+			}
+			setupCombo.setModel(model);
+			setupCombo.setEnabled(true);
+			buildButton.setEnabled(true);
+			setWrapped(sourceLabel, "Source: OSRS Wiki, pulled " + formatDate(sp.getFetchedAt()) + ". " + sp.getSetups().size() + " setup(s).");
+		}, err -> setWrapped(sourceLabel, err));
+	}
+
+	private GearSetup selectedSetup()
+	{
+		Object s = setupCombo.getSelectedItem();
+		return s instanceof GearSetup ? (GearSetup) s : null;
+	}
+
+	private void build()
+	{
+		GearSetup setup = selectedSetup();
+		if (currentPage == null || setup == null)
+		{
+			return;
+		}
+		if (!plugin.isLoggedIn())
+		{
+			setWrapped(statusLabel, "Log in first so the plugin can read your bank.");
+			return;
+		}
+		if (!plugin.isBankSeen())
+		{
+			setWrapped(statusLabel, "Open your bank once first. Items are matched against the bank contents.");
+			return;
+		}
+		buildButton.setEnabled(false);
+		setWrapped(statusLabel, "Matching against your bank...");
+		plugin.build(setup, result ->
+		{
+			buildButton.setEnabled(true);
+			currentResult = result;
+			showResult(result);
+			updateStatusLabel();
+			switch (config.outputMode())
+			{
+				case CREATE_TAG:
+					doCreate();
+					break;
+				case COPY_IMPORT_STRING:
+					doCopy();
+					break;
+				default:
+					break;
+			}
+		});
+	}
+
+	private void doCreate()
+	{
+		GearSetup setup = selectedSetup();
+		if (currentPage == null || setup == null || currentResult == null)
+		{
+			return;
+		}
+		if (currentResult.getTagItemIds().isEmpty())
+		{
+			setWrapped(statusLabel, "Nothing to tag: you own none of the recommended items.");
+			return;
+		}
+		createButton.setEnabled(false);
+		plugin.createTag(currentPage, setup, currentResult, tag ->
+		{
+			createButton.setEnabled(true);
+			setWrapped(statusLabel, "Created tag '" + tag + "'. Reopen the bank to see it.");
+		});
+	}
+
+	private void doCopy()
+	{
+		GearSetup setup = selectedSetup();
+		if (currentPage == null || setup == null || currentResult == null)
+		{
+			return;
+		}
+		String tag = plugin.tagNameFor(currentPage.getPage(), setup);
+		copyToClipboard(BankTagWriter.exportString(tag, currentResult.getIconItemId(), currentResult.getTagItemIds()));
+		setWrapped(statusLabel, "Import string copied. In the bank, right-click the tag tab '+' and choose Import tag tab.");
+	}
+
+	private void copyToClipboard(String text)
+	{
+		Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(text), null);
+	}
+
+	private void showResult(BuildResult result)
+	{
+		resultPanel.removeAll();
+
+		for (BuildResult.SlotPick pick : result.getPicks())
+		{
+			resultPanel.add(itemRow(pick.getItemId(), pick.getSlot().getDisplayName(), pick.getName() + "  (#" + pick.getRank() + ")", Color.WHITE));
+		}
+		for (BuildResult.MissingSlot miss : result.getMissing())
+		{
+			String detail = miss.getSuggestionName() == null
+				? "none owned"
+				: "none owned. Cheapest: " + miss.getSuggestionName()
+				+ (miss.getSuggestionPrice() > 0 ? " (" + QuantityFormatter.quantityToStackSize(miss.getSuggestionPrice()) + " gp)" : "");
+			resultPanel.add(itemRow(miss.getSuggestionItemId(), miss.getSlot().getDisplayName(), detail, MUTED));
+		}
+
+		if (!result.getInventory().isEmpty())
+		{
+			resultPanel.add(Box.createVerticalStrut(4));
+			resultPanel.add(header("Inventory"));
+			for (BuildResult.InventoryPick pick : result.getInventory())
+			{
+				resultPanel.add(itemRow(pick.getItemId(), null, pick.getName(), Color.WHITE));
+			}
+		}
+		if (!result.getUnownedInventory().isEmpty())
+		{
+			resultPanel.add(smallText("Not owned: " + String.join(", ", result.getUnownedInventory()), MUTED));
+		}
+		if (!result.getUnresolvedNames().isEmpty())
+		{
+			resultPanel.add(smallText("Not recognised as items: " + String.join(", ", result.getUnresolvedNames()), MUTED));
+		}
+		if (result.getPicks().isEmpty() && result.getInventory().isEmpty())
+		{
+			resultPanel.add(smallText("You own none of the recommended items for this setup.", MUTED));
+		}
+
+		actionRow.setVisible(true);
+		resultPanel.revalidate();
+		resultPanel.repaint();
+	}
+
+	public void setStatuses(List<TagStatus> statuses)
+	{
+		generatedPanel.removeAll();
+		if (statuses.isEmpty())
+		{
+			generatedPanel.add(smallText("No tags generated yet.", MUTED));
+		}
+		for (TagStatus status : statuses)
+		{
+			generatedPanel.add(statusRow(status));
+			generatedPanel.add(Box.createVerticalStrut(4));
+		}
+		generatedPanel.revalidate();
+		generatedPanel.repaint();
+		updateStatusLabel();
+	}
+
+	private JPanel statusRow(TagStatus status)
+	{
+		GeneratedTag g = status.getTag();
+		JPanel row = new JPanel();
+		row.setLayout(new BoxLayout(row, BoxLayout.Y_AXIS));
+		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		row.setBorder(new EmptyBorder(6, 6, 6, 6));
+
+		JPanel top = new JPanel(new BorderLayout(4, 0));
+		top.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		JLabel icon = new JLabel();
+		icon.setPreferredSize(new Dimension(36, 32));
+		if (g.getIconItemId() > 0)
+		{
+			itemManager.getImage(g.getIconItemId()).addTo(icon);
+		}
+		top.add(icon, BorderLayout.WEST);
+		JLabel name = new JLabel("<html><b>" + escape(g.getTag()) + "</b><br>"
+			+ "<span style='color:#a0a0a0'>OSRS Wiki, pulled " + formatDate(g.getFetchedAt())
+			+ (g.isSourceChanged() ? ". Wiki page updated" : "") + "</span></html>");
+		name.setFont(FontManager.getRunescapeSmallFont());
+		name.setForeground(Color.WHITE);
+		top.add(name, BorderLayout.CENTER);
+		row.add(top);
+
+		String stateText;
+		Color stateColor;
+		if (status.getLatest() == null)
+		{
+			stateText = "Open the bank to check for updates";
+			stateColor = MUTED;
+		}
+		else if (status.isUpdateAvailable())
+		{
+			stateText = "Update available";
+			stateColor = UPDATE_COLOR;
+		}
+		else
+		{
+			stateText = "Up to date";
+			stateColor = OK_COLOR;
+		}
+		if (status.isUserEdited())
+		{
+			stateText += " (edited by you)";
+		}
+		row.add(smallText(stateText, stateColor));
+		for (String change : status.getChanges())
+		{
+			row.add(smallText("  " + change, Color.WHITE));
+		}
+
+		JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+		buttons.setBackground(ColorScheme.DARKER_GRAY_COLOR);
+		if (status.isUpdateAvailable())
+		{
+			JButton apply = smallButton("Apply update");
+			apply.addActionListener(e ->
+			{
+				if (status.isUserEdited())
+				{
+					int choice = JOptionPane.showConfirmDialog(this,
+						"You edited the tag '" + g.getTag() + "' yourself.\nApplying the update rewrites it with the plugin's picks. Continue?",
+						"Overwrite your edits?", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+					if (choice != JOptionPane.YES_OPTION)
+					{
+						return;
+					}
+				}
+				plugin.applyUpdate(g.getTag());
+			});
+			buttons.add(apply);
+		}
+		JButton copy = smallButton("Copy string");
+		copy.addActionListener(e ->
+		{
+			copyToClipboard(BankTagWriter.exportString(g.getTag(), g.getIconItemId(), g.getItemIds()));
+			setWrapped(statusLabel, "Import string for '" + g.getTag() + "' copied.");
+		});
+		buttons.add(copy);
+		JButton remove = smallButton("Remove");
+		remove.addActionListener(e ->
+		{
+			Object[] options = {"Remove tag from bank too", "Stop tracking only", "Cancel"};
+			int choice = JOptionPane.showOptionDialog(this,
+				"Stop tracking '" + g.getTag() + "'?",
+				"Remove generated tag", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE, null, options, options[2]);
+			if (choice == 0 || choice == 1)
+			{
+				plugin.removeGenerated(g.getTag(), choice == 0);
+			}
+		});
+		buttons.add(remove);
+		row.add(buttons);
+		return row;
+	}
+
+	private JPanel itemRow(int itemId, String slot, String text, Color color)
+	{
+		JPanel row = new JPanel(new BorderLayout(4, 0));
+		row.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		row.setBorder(new EmptyBorder(1, 0, 1, 0));
+		JLabel icon = new JLabel();
+		icon.setPreferredSize(new Dimension(36, 32));
+		icon.setHorizontalAlignment(SwingConstants.CENTER);
+		if (itemId > 0)
+		{
+			itemManager.getImage(itemId).addTo(icon);
+		}
+		row.add(icon, BorderLayout.WEST);
+		String html = "<html>" + (slot != null ? "<span style='color:#a0a0a0'>" + escape(slot) + "</span><br>" : "") + escape(text) + "</html>";
+		JLabel label = new JLabel(html);
+		label.setFont(FontManager.getRunescapeSmallFont());
+		label.setForeground(color);
+		row.add(label, BorderLayout.CENTER);
+		return row;
+	}
+
+	private static JLabel header(String text)
+	{
+		JLabel label = new JLabel(text);
+		label.setFont(FontManager.getRunescapeBoldFont());
+		label.setForeground(ColorScheme.BRAND_ORANGE);
+		label.setBorder(BorderFactory.createEmptyBorder(2, 0, 2, 0));
+		return label;
+	}
+
+	private static JLabel smallText(String text, Color color)
+	{
+		JLabel label = new JLabel("<html>" + escape(text) + "</html>");
+		label.setFont(FontManager.getRunescapeSmallFont());
+		label.setForeground(color);
+		return label;
+	}
+
+	private static JButton smallButton(String text)
+	{
+		JButton button = new JButton(text);
+		button.setFont(FontManager.getRunescapeSmallFont());
+		button.setFocusPainted(false);
+		return button;
+	}
+
+	/** Wraps text in HTML so long messages wrap inside the narrow side panel. */
+	private static void setWrapped(JLabel label, String text)
+	{
+		label.setText("<html>" + escape(text) + "</html>");
+	}
+
+	private static String formatDate(long epochMillis)
+	{
+		if (epochMillis <= 0)
+		{
+			return "unknown date";
+		}
+		return DATE.format(Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault()));
+	}
+
+	private static String escape(String s)
+	{
+		return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+	}
+}

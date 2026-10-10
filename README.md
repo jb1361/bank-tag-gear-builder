@@ -1,10 +1,55 @@
 # Bank Tag Gear Builder
 
-A [RuneLite](https://runelite.net) plugin for building and managing gear setups using bank tags.
+A [RuneLite](https://runelite.net) companion plugin for Bank Tags. Pick a boss or activity and the
+plugin builds a bank tag from the OSRS Wiki's recommended gear, using only items you actually own.
 
-## Features
+## How it works
 
-- TODO: describe the plugin's features here.
+1. **Pick content** in the side panel. The list is every wiki page with a "Recommended equipment"
+   table: bosses, raids, slayer bosses, wilderness bosses, minigames and skilling bosses.
+2. **Choose a setup** when the page has more than one (melee / ranged / magic, roles, budget tiers).
+3. **Build.** For every slot the plugin takes the highest-ranked recommended item you own, counting
+   the bank plus equipped and inventory items. Charged, uncharged, degraded, imbued and ornamented
+   versions count as the same item. Recommended inventory items (potions, food, runes, special
+   attack weapons) are included where the wiki lists them.
+4. **Output.** Either create the tag directly in Bank Tags, named after the content
+   (e.g. `vorkath - ranged (crossbow)`) with the best weapon as its icon, or copy a standard Bank
+   Tags import string to review, edit or share. Created tags can be laid out in equipment-slot
+   order with inventory items on the rows below.
+
+Slots where you own nothing on the list are left empty and the cheapest recommended item is shown
+as a suggestion. Each tag shows the source and the date it was pulled.
+
+## Keeping tags up to date
+
+Generated tags are re-checked every time the bank is opened or closed.
+
+- **Notify only** (default): the panel marks the tag "Update available" with before/after lines
+  for each changed slot. Apply it with one click.
+- **Auto-update**: the tag is rebuilt and a chat message names what changed.
+- **Off**: nothing is checked.
+
+Tags you edited by hand in Bank Tags are never overwritten without asking. "Refresh all" re-fetches
+each tag's wiki page and flags tags whose page changed.
+
+## Settings
+
+| Setting | Options | Default |
+| --- | --- | --- |
+| Output | Ask each time, Create tag automatically, Copy import string | Ask each time |
+| When bank changes | Notify only, Auto-update, Off | Notify only |
+| Include inventory items | On, Off | On |
+| Count equipped and inventory items | On, Off | On |
+| Tag naming | Content + style, Content name | Content + style |
+| Arrange items by slot | On, Off | On |
+
+## Notes
+
+- Gear data comes only from the OSRS Wiki. The plugin resolves item names to item ids locally
+  from the game cache, so no other services are contacted.
+- The plugin cannot tell whether you meet an item's level or quest requirements. Items you own but
+  can't equip yet are still picked.
+- Import strings don't carry a layout; create the tag directly if you want the slot ordering.
 
 ## Development
 
