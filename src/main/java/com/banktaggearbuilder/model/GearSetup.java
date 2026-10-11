@@ -27,6 +27,12 @@ public class GearSetup
 	private List<List<String>> inventory = new ArrayList<>();
 	/** Runes the wiki puts in the rune pouch for this setup, if it lists a pouch. */
 	private List<List<String>> runePouch = new ArrayList<>();
+	/**
+	 * True when the inventory is the union of several example loadouts of different tiers
+	 * rather than one list for this style. Only supplies are taken from such an inventory,
+	 * since its gear belongs to the ranked tables.
+	 */
+	private boolean inventoryFromTiers;
 	/** For a combined setup, the tables it is made of; empty otherwise. */
 	private List<GearSetup> components = new ArrayList<>();
 

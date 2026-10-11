@@ -62,6 +62,8 @@ public class WikiTextParser
 		String label;
 		List<List<String>> entries;
 		List<List<String>> runePouch;
+		/** True when this block is the union of several unlabelled example loadouts. */
+		boolean fromTiers;
 	}
 
 	public List<GearSetup> parse(String wikitext)
@@ -96,6 +98,14 @@ public class WikiTextParser
 			}
 		}
 
+		// A page with a top-level Equipment section lists its real loadouts there; tables
+		// further down (per boss or phase) are partial and would only add duplicate gear
+		boolean hasEquipmentSection = setups.stream().anyMatch(s -> s.getSection().equalsIgnoreCase("equipment"));
+		if (hasEquipmentSection)
+		{
+			setups.removeIf(s -> !s.getSection().equalsIgnoreCase("equipment"));
+		}
+
 		List<InventoryBlock> inventories = findInventories(text);
 		for (GearSetup setup : setups)
 		{
@@ -104,6 +114,7 @@ public class WikiTextParser
 			{
 				setup.setInventory(inv.getEntries());
 				setup.setRunePouch(inv.getRunePouch());
+				setup.setInventoryFromTiers(inv.isFromTiers());
 			}
 		}
 
@@ -139,6 +150,7 @@ public class WikiTextParser
 				combined.setComponents(new ArrayList<>(group));
 				combined.setInventory(union(group, true));
 				combined.setRunePouch(union(group, false));
+				combined.setInventoryFromTiers(group.stream().anyMatch(GearSetup::isInventoryFromTiers));
 				out.add(combined);
 			}
 			out.addAll(group);
@@ -293,7 +305,7 @@ public class WikiTextParser
 		{
 			if (!pouches.isEmpty())
 			{
-				blocks.add(new InventoryBlock(label, new ArrayList<>(), runeEntries(pouches.get(0))));
+				blocks.add(new InventoryBlock(label, new ArrayList<>(), runeEntries(pouches.get(0)), false));
 			}
 			return;
 		}
@@ -303,7 +315,7 @@ public class WikiTextParser
 			// (a table of example setups), otherwise share the only pouch
 			Template pouch = pouches.isEmpty() ? null : pouches.get(Math.min(i, pouches.size() - 1));
 			blocks.add(new InventoryBlock(label, inventoryEntries(inventories.get(i)),
-				pouch == null ? new ArrayList<>() : runeEntries(pouch)));
+				pouch == null ? new ArrayList<>() : runeEntries(pouch), false));
 		}
 	}
 
@@ -396,7 +408,7 @@ public class WikiTextParser
 				runes.putIfAbsent(names.get(0).toLowerCase(Locale.ROOT), names);
 			}
 		}
-		return new InventoryBlock("", new ArrayList<>(entries.values()), new ArrayList<>(runes.values()));
+		return new InventoryBlock("", new ArrayList<>(entries.values()), new ArrayList<>(runes.values()), true);
 	}
 
 	private static String normalize(String s)

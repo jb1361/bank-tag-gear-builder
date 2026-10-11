@@ -100,12 +100,18 @@ public class GearMatcher
 				Resolved r = firstOwned(names, includeInventoryAndEquipment, result);
 				if (r != null)
 				{
+					if (setup.isInventoryFromTiers() && isEquipable(r.getItemId()))
+					{
+						// Gear in a tiered example loadout belongs to the ranked tables, which
+						// already picked the player's best; only supplies are taken from here
+						continue;
+					}
 					if (!containsItem(result, r.getItemId()))
 					{
 						result.getInventory().add(new BuildResult.InventoryPick(r.getName(), r.getItemId(), r.isExact()));
 					}
 				}
-				else
+				else if (!setup.isInventoryFromTiers())
 				{
 					result.getUnownedInventory().add(names.get(0));
 				}
@@ -131,6 +137,12 @@ public class GearMatcher
 			}
 			matchSlot(group, slot, ranks, includeInvEquip, result);
 		}
+	}
+
+	private boolean isEquipable(int itemId)
+	{
+		ItemStats stats = itemManager.getItemStats(itemId);
+		return stats != null && stats.isEquipable();
 	}
 
 	/** True if an equipment pick or inventory pick already carries this item. */
@@ -161,6 +173,11 @@ public class GearMatcher
 		int fallback = -1;
 		String fallbackName = null;
 
+		// Special attack weapons serve different jobs (defence drain, burst damage, core
+		// dumping), so every owned one across the ranks is included, not only the best rank
+		boolean takeAllRanks = slot == EquipmentSlot.SPECIAL;
+		boolean pickedAny = false;
+
 		for (int r = 0; r < ranks.size(); r++)
 		{
 			for (Alternative alternative : ranks.get(r))
@@ -179,9 +196,17 @@ public class GearMatcher
 				{
 					for (Resolved pick : ownedItems)
 					{
-						result.getPicks().add(new BuildResult.SlotPick(group, slot, r + 1, pick.getName(), pick.getItemId(), pick.isExact()));
+						if (!containsPick(result, group, pick.getItemId()))
+						{
+							result.getPicks().add(new BuildResult.SlotPick(group, slot, r + 1, pick.getName(), pick.getItemId(), pick.isExact()));
+						}
 					}
-					return;
+					pickedAny = true;
+					if (!takeAllRanks)
+					{
+						return;
+					}
+					break;
 				}
 
 				// Not owned: remember the cheapest option as the suggestion for this slot
@@ -210,6 +235,10 @@ public class GearMatcher
 			}
 		}
 
+		if (pickedAny)
+		{
+			return;
+		}
 		if (bestSuggestion < 0)
 		{
 			bestSuggestion = fallback;
@@ -217,6 +246,19 @@ public class GearMatcher
 			bestPrice = 0;
 		}
 		result.getMissing().add(new BuildResult.MissingSlot(group, slot, bestSuggestionName, bestSuggestion, bestPrice));
+	}
+
+	/** True if this style already picked the item in some slot (a weapon listed again as a special). */
+	private static boolean containsPick(BuildResult result, String group, int itemId)
+	{
+		for (BuildResult.SlotPick pick : result.getPicks())
+		{
+			if (pick.getGroup().equals(group) && pick.getItemId() == itemId)
+			{
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**

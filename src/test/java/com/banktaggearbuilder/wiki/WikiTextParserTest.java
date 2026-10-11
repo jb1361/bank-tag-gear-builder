@@ -163,9 +163,12 @@ public class WikiTextParserTest
 		assertTrue(combined.isCombined());
 		assertEquals(3, combined.getComponents().size());
 		assertEquals("All (Melee switch + Ranged switch + Magic switch)", combined.getStyle());
+		assertTrue(combined.isInventoryFromTiers());
 
-		// Per-boss tables are labelled with the boss, not "Equipment"
-		assertTrue(setups.stream().anyMatch(s -> s.getSection().startsWith("Akkha")));
+		// Per-boss and per-phase tables further down the page are dropped: only the
+		// top-level Equipment section's loadouts are offered
+		assertEquals(4, setups.size());
+		assertTrue(setups.stream().allMatch(s -> s.getSection().equals("Equipment")));
 	}
 
 	@Test
