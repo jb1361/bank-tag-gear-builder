@@ -105,8 +105,6 @@ public class BankTagGearBuilderPlugin extends Plugin
 	private NavigationButton navButton;
 	/** Set once a bank cache lookup found a profile to read from, so ticks stop retrying. */
 	private boolean bankCacheChecked;
-	/** Inventory or equipment changed since the last re-check; handled once per tick. */
-	private boolean recheckPending;
 
 	/** Tags this plugin created. Only touched on the client thread after startUp. */
 	private final List<GeneratedTag> generated = new ArrayList<>();
@@ -177,32 +175,17 @@ public class BankTagGearBuilderPlugin extends Plugin
 		{
 			loadBankCache();
 		}
-		if (recheckPending)
-		{
-			recheckPending = false;
-			recheckAll();
-		}
 	}
 
 	@Subscribe
 	public void onItemContainerChanged(ItemContainerChanged event)
 	{
-		int id = event.getContainerId();
-		boolean firstBankSight = id == InventoryID.BANK
+		boolean firstBankSight = event.getContainerId() == InventoryID.BANK
 			&& (!ownedItems.isBankSeen() || ownedItems.isBankFromCache());
-		if (!ownedItems.update(id, event.getItemContainer()))
-		{
-			return;
-		}
-		if (firstBankSight)
+		if (ownedItems.update(event.getContainerId(), event.getItemContainer()) && firstBankSight)
 		{
 			saveBankCache();
 			recheckAll();
-		}
-		else if ((id == InventoryID.INV || id == InventoryID.WORN) && config.matchEquippedAndInventory() && ownedItems.isBankSeen())
-		{
-			// A drop or new item may change the best pick; re-check once this tick
-			recheckPending = true;
 		}
 	}
 
