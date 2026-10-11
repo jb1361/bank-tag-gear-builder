@@ -89,9 +89,10 @@ public class BankTagWriter
 	/**
 	 * Creates or rewrites a tag so it contains exactly {@code itemIds}.
 	 *
+	 * @param exactIds        items tagged by exact id; every other item matches all its variants
 	 * @param previousItemIds items this plugin previously wrote, removed if no longer wanted
 	 */
-	public void writeTag(String tag, List<Integer> itemIds, int iconItemId, List<Integer> previousItemIds, boolean layoutBySlot, BuildResult layoutSource)
+	public void writeTag(String tag, List<Integer> itemIds, Set<Integer> exactIds, int iconItemId, List<Integer> previousItemIds, boolean layoutBySlot, BuildResult layoutSource)
 	{
 		tag = sanitizeTagName(tag);
 
@@ -108,7 +109,13 @@ public class BankTagWriter
 		}
 		for (int id : itemIds)
 		{
-			tagManager.addTag(id, tag, true);
+			boolean variation = !exactIds.contains(id);
+			// Drop any stale tag of the other kind so a potion never matches all doses
+			if (previousItemIds != null && previousItemIds.contains(id))
+			{
+				tagManager.removeTag(id, tag);
+			}
+			tagManager.addTag(id, tag, variation);
 		}
 
 		if (layoutBySlot && layoutSource != null)
@@ -281,9 +288,9 @@ public class BankTagWriter
 
 	/**
 	 * The text Bank Tags' "Import tag tab" accepts. Negative ids tell it to match all
-	 * variants of an item (charged, degraded, ornamented...).
+	 * variants of an item (charged, degraded, ornamented...); exact ids stay positive.
 	 */
-	public static String exportString(String tag, int iconItemId, List<Integer> itemIds)
+	public static String exportString(String tag, int iconItemId, List<Integer> itemIds, Set<Integer> exactIds)
 	{
 		List<String> data = new ArrayList<>();
 		data.add("banktags");
@@ -292,7 +299,7 @@ public class BankTagWriter
 		data.add(String.valueOf(Math.max(iconItemId, 0)));
 		for (int id : itemIds)
 		{
-			data.add(String.valueOf(-id));
+			data.add(String.valueOf(exactIds.contains(id) ? id : -id));
 		}
 		return Text.toCSV(data);
 	}

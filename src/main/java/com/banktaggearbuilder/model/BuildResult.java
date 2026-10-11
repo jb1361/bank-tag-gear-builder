@@ -38,6 +38,8 @@ public class BuildResult
 	{
 		String name;
 		int itemId;
+		/** Tag exactly this item id rather than all of its variants (used for 4-dose potions). */
+		boolean exactVariant;
 	}
 
 	private final List<SlotPick> picks = new ArrayList<>();
@@ -61,6 +63,20 @@ public class BuildResult
 			ids.add(pick.getItemId());
 		}
 		return new ArrayList<>(ids);
+	}
+
+	/** Item ids that must be tagged exactly, without variant matching. */
+	public Set<Integer> getExactItemIds()
+	{
+		Set<Integer> ids = new LinkedHashSet<>();
+		for (InventoryPick pick : inventory)
+		{
+			if (pick.isExactVariant())
+			{
+				ids.add(pick.getItemId());
+			}
+		}
+		return ids;
 	}
 
 	/** The item used as the tag tab icon: the best weapon, else the first picked item. */

@@ -58,7 +58,7 @@ public class GearMatcher
 				int id = firstOwned(names, includeInventoryAndEquipment, result);
 				if (id >= 0)
 				{
-					result.getInventory().add(new BuildResult.InventoryPick(itemManager.getItemComposition(id).getName(), id));
+					result.getInventory().add(new BuildResult.InventoryPick(itemManager.getItemComposition(id).getName(), id, false));
 				}
 				else
 				{
@@ -76,8 +76,8 @@ public class GearMatcher
 	}
 
 	/**
-	 * Potions are always tagged as their 4-dose variant, owned or not. Variation tagging makes
-	 * every dose in the bank match, and the player can restock without rebuilding the tag.
+	 * Potions are always tagged as exactly their 4-dose item, owned or not, so the tag never
+	 * shows partly used doses. Gear uses variant matching; potions must not.
 	 */
 	private void addPotion(String name, BuildResult result)
 	{
@@ -85,14 +85,12 @@ public class GearMatcher
 		List<Integer> ids = index.lookup(fourDose);
 		if (ids.isEmpty())
 		{
-			ids = index.lookup(name);
-		}
-		if (ids.isEmpty())
-		{
-			result.getUnresolvedNames().add(name);
+			result.getUnresolvedNames().add(fourDose);
 			return;
 		}
-		result.getInventory().add(new BuildResult.InventoryPick(fourDose, OwnedItems.canonical(itemManager, ids.get(0))));
+		// Lowest id is the ordinary item; higher duplicates are minigame or quest copies
+		int id = itemManager.canonicalize(ids.get(0));
+		result.getInventory().add(new BuildResult.InventoryPick(fourDose, id, true));
 	}
 
 	private void matchSlot(EquipmentSlot slot, List<List<List<String>>> ranks, boolean includeInvEquip, BuildResult result)

@@ -23,6 +23,8 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import javax.swing.BorderFactory;
@@ -444,7 +446,7 @@ public class GearBuilderPanel extends PluginPanel
 			return;
 		}
 		String tag = plugin.tagNameFor(currentPage.getPage(), setup);
-		copyToClipboard(BankTagWriter.exportString(tag, currentResult.getIconItemId(), currentResult.getTagItemIds()));
+		copyToClipboard(BankTagWriter.exportString(tag, currentResult.getIconItemId(), currentResult.getTagItemIds(), currentResult.getExactItemIds()));
 		setWrapped(statusLabel, "Import string copied. In the bank, right-click the tag tab '+' and choose Import tag tab.");
 	}
 
@@ -592,7 +594,7 @@ public class GearBuilderPanel extends PluginPanel
 		JButton copy = smallButton("Copy string");
 		copy.addActionListener(e ->
 		{
-			copyToClipboard(BankTagWriter.exportString(g.getTag(), g.getIconItemId(), g.getItemIds()));
+			copyToClipboard(BankTagWriter.exportString(g.getTag(), g.getIconItemId(), g.getItemIds(), new HashSet<>(g.getExactItemIds() == null ? Collections.emptyList() : g.getExactItemIds())));
 			setWrapped(statusLabel, "Import string for '" + g.getTag() + "' copied.");
 		});
 		buttons.add(copy);

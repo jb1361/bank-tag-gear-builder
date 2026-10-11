@@ -446,9 +446,11 @@ public class BankTagGearBuilderPlugin extends Plugin
 	private void applyResult(GeneratedTag g, BuildResult result, List<Integer> previousItemIds)
 	{
 		List<Integer> ids = result.getTagItemIds();
+		Set<Integer> exact = result.getExactItemIds();
 		int icon = result.getIconItemId() > 0 ? result.getIconItemId() : g.getIconItemId();
-		writer.writeTag(g.getTag(), ids, icon, previousItemIds, config.arrangeBySlot(), result);
+		writer.writeTag(g.getTag(), ids, exact, icon, previousItemIds, config.arrangeBySlot(), result);
 		g.setItemIds(ids);
+		g.setExactItemIds(new ArrayList<>(exact));
 		g.setIconItemId(icon);
 		Map<String, String> picks = new LinkedHashMap<>();
 		GearMatcher.summarize(result, picks);

@@ -23,6 +23,8 @@ public class GeneratedTag
 	private GearSetup setup;
 	/** Item ids the plugin last wrote to the tag. */
 	private List<Integer> itemIds = new ArrayList<>();
+	/** Subset of itemIds tagged by exact id (4-dose potions) rather than all variants. */
+	private List<Integer> exactItemIds = new ArrayList<>();
 	/** Slot name -> item name chosen, for showing before/after diffs. */
 	private Map<String, String> picks = new LinkedHashMap<>();
 	/** Set when a newer wiki revision was seen by "Refresh all". */
