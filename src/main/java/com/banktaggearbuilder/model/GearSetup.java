@@ -21,6 +21,8 @@ public class GearSetup
 	private Map<EquipmentSlot, List<List<List<String>>>> slots = new EnumMap<>(EquipmentSlot.class);
 	/** Inventory entries in slot order (1-28). Each entry is a list of alternative names. */
 	private List<List<String>> inventory = new ArrayList<>();
+	/** Runes the wiki puts in the rune pouch for this setup, if it lists a pouch. */
+	private List<List<String>> runePouch = new ArrayList<>();
 
 	public void addRank(EquipmentSlot slot, int rank, List<List<String>> alternatives)
 	{

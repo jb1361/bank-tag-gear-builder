@@ -481,6 +481,15 @@ public class GearBuilderPanel extends PluginPanel
 				resultPanel.add(itemRow(pick.getItemId(), null, pick.getName(), Color.WHITE));
 			}
 		}
+		if (!result.getRunePouch().isEmpty())
+		{
+			resultPanel.add(Box.createVerticalStrut(4));
+			resultPanel.add(header("Rune pouch"));
+			for (BuildResult.InventoryPick pick : result.getRunePouch())
+			{
+				resultPanel.add(itemRow(pick.getItemId(), null, pick.getName(), Color.WHITE));
+			}
+		}
 		if (!result.getUnownedInventory().isEmpty())
 		{
 			resultPanel.add(smallText("Not owned: " + String.join(", ", result.getUnownedInventory()), MUTED));

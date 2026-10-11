@@ -458,6 +458,10 @@ public class BankTagGearBuilderPlugin extends Plugin
 		{
 			picks.put("inv:" + pick.getName(), pick.getName());
 		}
+		for (BuildResult.InventoryPick pick : result.getRunePouch())
+		{
+			picks.put("rune:" + pick.getName(), pick.getName());
+		}
 		g.setPicks(picks);
 		g.setSourceChanged(false);
 		store.save(g);
@@ -476,7 +480,7 @@ public class BankTagGearBuilderPlugin extends Plugin
 		Set<String> slots = new LinkedHashSet<>();
 		for (String k : before.keySet())
 		{
-			if (!k.startsWith("inv:"))
+			if (!k.startsWith("inv:") && !k.startsWith("rune:"))
 			{
 				slots.add(k);
 			}
@@ -500,34 +504,40 @@ public class BankTagGearBuilderPlugin extends Plugin
 			}
 		}
 
-		Set<String> oldInv = new LinkedHashSet<>();
+		diffNamed(changes, "inv:", "Inventory", before, result.getInventory());
+		diffNamed(changes, "rune:", "Rune pouch", before, result.getRunePouch());
+		return changes;
+	}
+
+	private static void diffNamed(List<String> changes, String prefix, String label, Map<String, String> before, List<BuildResult.InventoryPick> now)
+	{
+		Set<String> old = new LinkedHashSet<>();
 		for (String k : before.keySet())
 		{
-			if (k.startsWith("inv:"))
+			if (k.startsWith(prefix))
 			{
-				oldInv.add(k.substring(4));
+				old.add(k.substring(prefix.length()));
 			}
 		}
-		Set<String> newInv = new LinkedHashSet<>();
-		for (BuildResult.InventoryPick pick : result.getInventory())
+		Set<String> cur = new LinkedHashSet<>();
+		for (BuildResult.InventoryPick pick : now)
 		{
-			newInv.add(pick.getName());
+			cur.add(pick.getName());
 		}
-		for (String name : newInv)
+		for (String name : cur)
 		{
-			if (!oldInv.contains(name))
+			if (!old.contains(name))
 			{
-				changes.add("Inventory: " + name + " added");
+				changes.add(label + ": " + name + " added");
 			}
 		}
-		for (String name : oldInv)
+		for (String name : old)
 		{
-			if (!newInv.contains(name))
+			if (!cur.contains(name))
 			{
-				changes.add("Inventory: " + name + " no longer owned");
+				changes.add(label + ": " + name + " removed");
 			}
 		}
-		return changes;
 	}
 
 	private void recheckAll()

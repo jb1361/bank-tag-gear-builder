@@ -3,7 +3,9 @@ package com.banktaggearbuilder;
 import com.banktaggearbuilder.model.BuildResult;
 import com.banktaggearbuilder.model.EquipmentSlot;
 import com.banktaggearbuilder.model.GearSetup;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
 import javax.inject.Inject;
@@ -19,6 +21,19 @@ public class GearMatcher
 {
 	/** Trailing dose marker on potion names, e.g. "Prayer potion(3)" or "Super restore (4)". */
 	private static final Pattern POTION_DOSE = Pattern.compile("\\s?\\([1-4]\\)$");
+
+	/** Combination runes and the two elemental runes that replace them when not owned. */
+	private static final Map<String, String[]> COMBINATION_RUNES = new HashMap<>();
+
+	static
+	{
+		COMBINATION_RUNES.put("mist rune", new String[]{"Air rune", "Water rune"});
+		COMBINATION_RUNES.put("dust rune", new String[]{"Air rune", "Earth rune"});
+		COMBINATION_RUNES.put("mud rune", new String[]{"Water rune", "Earth rune"});
+		COMBINATION_RUNES.put("smoke rune", new String[]{"Air rune", "Fire rune"});
+		COMBINATION_RUNES.put("steam rune", new String[]{"Water rune", "Fire rune"});
+		COMBINATION_RUNES.put("lava rune", new String[]{"Earth rune", "Fire rune"});
+	}
 
 	private final ItemManager itemManager;
 	private final ItemNameIndex index;
@@ -65,9 +80,46 @@ public class GearMatcher
 					result.getUnownedInventory().add(names.get(0));
 				}
 			}
+
+			for (List<String> names : setup.getRunePouch())
+			{
+				addRune(names.get(0), includeInventoryAndEquipment, result);
+			}
 		}
 
 		return result;
+	}
+
+	/**
+	 * Runes are consumables, so they are always included. A combination rune the player does
+	 * not own is replaced by its two elemental runes, which the wiki lists as the alternative.
+	 */
+	private void addRune(String name, boolean includeInvEquip, BuildResult result)
+	{
+		List<Integer> ids = index.lookup(name);
+		if (ids.isEmpty())
+		{
+			result.getUnresolvedNames().add(name);
+			return;
+		}
+		int id = OwnedItems.canonical(itemManager, ids.get(0));
+		String[] components = COMBINATION_RUNES.get(name.toLowerCase(Locale.ROOT));
+		if (components != null && !owned.owns(id, includeInvEquip))
+		{
+			for (String component : components)
+			{
+				addRune(component, includeInvEquip, result);
+			}
+			return;
+		}
+		for (BuildResult.InventoryPick existing : result.getRunePouch())
+		{
+			if (existing.getItemId() == id)
+			{
+				return;
+			}
+		}
+		result.getRunePouch().add(new BuildResult.InventoryPick(itemManager.getItemComposition(id).getName(), id, false));
 	}
 
 	private static boolean isPotion(String name)

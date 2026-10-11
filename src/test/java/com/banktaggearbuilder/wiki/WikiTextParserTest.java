@@ -81,6 +81,12 @@ public class WikiTextParserTest
 		assertTrue(inv.stream().anyMatch(names -> names.get(0).equals("Shark") && names.contains("Monkfish")));
 		// Duplicates collapse to one entry
 		assertEquals(1, inv.stream().filter(names -> names.get(0).equals("Cooked karambwan")).count());
+
+		// The {{Rune pouch}} next to the inventory is kept separately
+		assertEquals(Arrays.asList(
+			Collections.singletonList("Law rune"),
+			Collections.singletonList("Dust rune"),
+			Collections.singletonList("Chaos rune")), ranged.getRunePouch());
 	}
 
 	@Test

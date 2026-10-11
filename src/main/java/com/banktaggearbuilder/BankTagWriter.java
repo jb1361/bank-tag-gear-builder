@@ -218,6 +218,22 @@ public class BankTagWriter
 				layout.setItemAtPos(pick.getItemId(), pos++);
 			}
 		}
+
+		// Rune pouch contents on their own row below the inventory
+		if (!result.getRunePouch().isEmpty())
+		{
+			if (pos % w != 0)
+			{
+				pos += w - (pos % w);
+			}
+			for (BuildResult.InventoryPick pick : result.getRunePouch())
+			{
+				if (placed.add(pick.getItemId()))
+				{
+					layout.setItemAtPos(pick.getItemId(), pos++);
+				}
+			}
+		}
 		return layout;
 	}
 

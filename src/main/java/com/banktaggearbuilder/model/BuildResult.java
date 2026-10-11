@@ -45,6 +45,8 @@ public class BuildResult
 	private final List<SlotPick> picks = new ArrayList<>();
 	private final List<MissingSlot> missing = new ArrayList<>();
 	private final List<InventoryPick> inventory = new ArrayList<>();
+	/** Runes for the rune pouch, kept apart from the inventory items. */
+	private final List<InventoryPick> runePouch = new ArrayList<>();
 	private final List<String> unownedInventory = new ArrayList<>();
 	private final Set<String> unresolvedNames = new LinkedHashSet<>();
 
@@ -59,6 +61,10 @@ public class BuildResult
 			ids.add(pick.getItemId());
 		}
 		for (InventoryPick pick : inventory)
+		{
+			ids.add(pick.getItemId());
+		}
+		for (InventoryPick pick : runePouch)
 		{
 			ids.add(pick.getItemId());
 		}

@@ -46,8 +46,11 @@ each tag's wiki page and flags tags whose page changed.
 
 ## Notes
 
-- Potions are always tagged as their 4-dose variant whether or not you own them, so you can
-  restock without rebuilding the tag. Every dose in the bank matches the tag.
+- Potions are always tagged as exactly their 4-dose item whether or not you own them, so you can
+  restock without rebuilding the tag.
+- Runes the wiki puts in the rune pouch are always included and kept on their own row below the
+  inventory. A combination rune you don't own is replaced by its two elemental runes. Runes the
+  wiki lists directly in the inventory stay with the inventory items.
 - Bank placeholders are not counted as owned.
 - Your bank contents are cached per account whenever the bank is opened or closed, so after the
   first session the plugin works straight away at login. Open the bank to refresh the cache.

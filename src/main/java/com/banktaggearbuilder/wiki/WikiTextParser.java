@@ -57,6 +57,7 @@ public class WikiTextParser
 	{
 		String label;
 		List<List<String>> entries;
+		List<List<String>> runePouch;
 	}
 
 	public List<GearSetup> parse(String wikitext)
@@ -96,6 +97,7 @@ public class WikiTextParser
 			if (inv != null)
 			{
 				setup.setInventory(inv.getEntries());
+				setup.setRunePouch(inv.getRunePouch());
 			}
 		}
 
@@ -198,22 +200,56 @@ public class WikiTextParser
 				{
 					label = m.group(1).trim();
 				}
-				for (Template t : findTemplates(tab, "inventory"))
-				{
-					blocks.add(new InventoryBlock(label, inventoryEntries(t)));
-				}
+				addBlock(blocks, label, tab);
 			}
 			idx = close;
 		}
 
 		if (blocks.isEmpty())
 		{
-			for (Template t : findTemplates(text, "inventory"))
-			{
-				blocks.add(new InventoryBlock("", inventoryEntries(t)));
-			}
+			addBlock(blocks, "", text);
 		}
 		return blocks;
+	}
+
+	/** Adds one block for the inventory (and rune pouch, if any) found in {@code section}. */
+	private void addBlock(List<InventoryBlock> blocks, String label, String section)
+	{
+		List<Template> inventories = findTemplates(section, "inventory");
+		List<Template> pouches = findTemplates(section, "rune pouch");
+		List<List<String>> runes = pouches.isEmpty() ? new ArrayList<>() : runeEntries(pouches.get(0));
+		if (inventories.isEmpty())
+		{
+			if (!runes.isEmpty())
+			{
+				blocks.add(new InventoryBlock(label, new ArrayList<>(), runes));
+			}
+			return;
+		}
+		for (Template t : inventories)
+		{
+			blocks.add(new InventoryBlock(label, inventoryEntries(t), runes));
+		}
+	}
+
+	private List<List<String>> runeEntries(Template pouch)
+	{
+		Map<String, List<String>> unique = new LinkedHashMap<>();
+		for (int i = 1; i <= 4; i++)
+		{
+			String value = pouch.getParams().get(String.valueOf(i));
+			if (value == null || value.trim().isEmpty())
+			{
+				continue;
+			}
+			List<List<String>> alternatives = parseAlternatives(value);
+			if (!alternatives.isEmpty())
+			{
+				List<String> names = alternatives.get(0);
+				unique.putIfAbsent(names.get(0).toLowerCase(Locale.ROOT), names);
+			}
+		}
+		return new ArrayList<>(unique.values());
 	}
 
 	private List<List<String>> inventoryEntries(Template inventory)
