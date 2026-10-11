@@ -8,6 +8,9 @@ import net.runelite.client.config.ConfigItem;
 public interface BankTagGearBuilderConfig extends Config
 {
 	String GROUP = "bank-tag-gear-builder";
+	String FORCE_WIKI_SYNC_KEY = "forceWikiSync";
+	/** Hidden: when the last forced sync ran. Wiki cache entries written before it are refetched. */
+	String WIKI_SYNCED_AT_KEY = "wikiSyncedAt";
 
 	enum OutputMode
 	{
@@ -101,5 +104,27 @@ public interface BankTagGearBuilderConfig extends Config
 	default boolean arrangeBySlot()
 	{
 		return true;
+	}
+
+	@ConfigItem(
+		keyName = FORCE_WIKI_SYNC_KEY,
+		name = "Sync from wiki now",
+		description = "Tick to download the content list and gear setups from the OSRS Wiki again instead of using the saved copies. Unticks itself when the sync starts.",
+		position = 7
+	)
+	default boolean forceWikiSync()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = WIKI_SYNCED_AT_KEY,
+		name = "",
+		description = "",
+		hidden = true
+	)
+	default long wikiSyncedAt()
+	{
+		return 0;
 	}
 }

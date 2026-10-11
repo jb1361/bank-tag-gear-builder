@@ -16,6 +16,7 @@ import javax.inject.Singleton;
 import lombok.Value;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.ItemStats;
+import net.runelite.client.game.ItemVariationMapping;
 
 /**
  * Picks the best-ranked owned item for each slot of a setup. Must run on the client thread
@@ -27,6 +28,8 @@ public class GearMatcher
 	/** Trailing charge or dose marker, e.g. "Prayer potion(3)", "Amulet of glory(6)", "Ring of wealth (5)". */
 	private static final Pattern CHARGE_SUFFIX = Pattern.compile("\\s?\\((\\d+)\\)$");
 	private static final int MAX_CHARGE = 12;
+	/** Trailing degrade level, e.g. "Ahrim's hood 75". */
+	private static final Pattern DEGRADE_SUFFIX = Pattern.compile(" (\\d{1,3})$");
 
 	/** Combination runes and the two elemental runes that replace them when not owned. */
 	private static final Map<String, String[]> COMBINATION_RUNES = new HashMap<>();
@@ -344,7 +347,8 @@ public class GearMatcher
 				int canon = OwnedItems.canonical(itemManager, id);
 				if (owned.owns(canon, includeInvEquip))
 				{
-					return new Resolved(itemManager.getItemComposition(canon).getName(), canon, false);
+					Resolved best = bestOwnedVariant(canon, includeInvEquip);
+					return best != null ? best : new Resolved(itemManager.getItemComposition(canon).getName(), canon, false);
 				}
 			}
 		}
@@ -353,6 +357,63 @@ public class GearMatcher
 			result.getUnresolvedNames().add(names.get(0));
 		}
 		return null;
+	}
+
+	/**
+	 * When the player owns several variants of one item ("Dizana's quiver (uncharged)" and
+	 * "Dizana's quiver", "Masori body" and "Masori body (f)"), tagging by variation would show
+	 * all of them, so only the best owned variant is tagged, by exact id.
+	 *
+	 * @return the best owned variant, or null if fewer than two variants are owned
+	 */
+	private Resolved bestOwnedVariant(int canonicalId, boolean includeInvEquip)
+	{
+		int best = -1;
+		String bestName = null;
+		int bestScore = Integer.MIN_VALUE;
+		int ownedCount = 0;
+		for (int id : ItemVariationMapping.getVariations(canonicalId))
+		{
+			if (!owned.ownsExact(id, includeInvEquip))
+			{
+				continue;
+			}
+			ownedCount++;
+			String name = itemManager.getItemComposition(id).getName();
+			int score = variantScore(name);
+			if (score > bestScore || (score == bestScore && id < best))
+			{
+				best = id;
+				bestName = name;
+				bestScore = score;
+			}
+		}
+		return ownedCount < 2 ? null : new Resolved(bestName, best, true);
+	}
+
+	/**
+	 * Higher is better: uncharged or broken copies lose, fortified "(f)" upgrades win, and
+	 * degraded items ("Ahrim's hood 75") prefer the most charge left. Locked "(l)" copies
+	 * count the same as the plain item.
+	 */
+	private static int variantScore(String name)
+	{
+		String lower = name.toLowerCase(Locale.ROOT);
+		int score = 0;
+		if (lower.contains("uncharged") || lower.contains("broken") || lower.contains("inactive") || lower.contains("(empty)"))
+		{
+			score -= 1000;
+		}
+		if (lower.endsWith("(f)"))
+		{
+			score += 500;
+		}
+		Matcher m = DEGRADE_SUFFIX.matcher(lower);
+		if (m.find())
+		{
+			score += Integer.parseInt(m.group(1));
+		}
+		return score;
 	}
 
 	/**

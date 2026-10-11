@@ -281,6 +281,32 @@ public class GearBuilderPanel extends PluginPanel
 		}
 	}
 
+	/**
+	 * Loads the content list again after a forced wiki sync. The selected page, if still
+	 * listed, is reselected, which fetches it again too.
+	 */
+	public void reloadFromWiki()
+	{
+		if (contentLoading)
+		{
+			return;
+		}
+		contentLoading = true;
+		selectedContent = null;
+		setWrapped(statusLabel, "Syncing with the OSRS Wiki...");
+		plugin.loadContent(pages ->
+		{
+			contentLoading = false;
+			allContent = pages;
+			filterContent();
+			updateStatusLabel();
+		}, err ->
+		{
+			contentLoading = false;
+			setWrapped(statusLabel, err);
+		});
+	}
+
 	public void onConfigChanged()
 	{
 		switch (config.outputMode())

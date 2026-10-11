@@ -12,9 +12,11 @@ import java.io.Reader;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Consumer;
 import javax.inject.Inject;
@@ -43,6 +45,7 @@ public class WikiClient
 	private static final String EQUIPMENT_TEMPLATE = "Template:Recommended equipment";
 	private static final String COMBAT_ACHIEVEMENTS_CATEGORY = "Category:Combat Achievements";
 	private static final String CONTENT_FILE = "content.json";
+	private static final String STRATEGIES_SUFFIX = "/Strategies";
 	private static final String PAGES_DIR = "pages";
 
 	/** On-disk form of the content list. */
@@ -50,8 +53,8 @@ public class WikiClient
 	private static class CachedContent
 	{
 		private int revision;
+		private long fetchedAt;
 		private List<String> titles = new ArrayList<>();
-		private List<String> overrides = new ArrayList<>();
 	}
 
 	/** On-disk form of one parsed strategy page. */
@@ -74,6 +77,7 @@ public class WikiClient
 
 	/** Directory for the cache, or null when none is available (then every call goes to the wiki). */
 	private volatile Filepath cacheDir;
+	private volatile long syncedAt;
 
 	@Inject
 	private WikiClient(OkHttpClient okHttpClient, Gson gson, Client client, ScheduledExecutorService executor)
@@ -110,14 +114,15 @@ public class WikiClient
 			if (!force && file != null)
 			{
 				CachedContent cached = readJson(file, CachedContent.class);
-				if (cached != null && isCurrent(cached.getRevision()))
+				if (cached != null && isCurrent(cached.getRevision(), cached.getFetchedAt()))
 				{
 					List<ContentPage> pages = new ArrayList<>();
-					for (int i = 0; i < cached.getTitles().size(); i++)
+					for (String title : cached.getTitles())
 					{
-						String override = i < cached.getOverrides().size() ? cached.getOverrides().get(i) : null;
-						pages.add(new ContentPage(cached.getTitles().get(i), override));
+						pages.add(new ContentPage(title));
 					}
+					// Filtered again so lists cached before a rule change still follow it
+					pages = disambiguate(dropDuplicateStrategies(pages));
 					log.debug("Content list served from cache (revision {})", cached.getRevision());
 					onSuccess.accept(pages);
 					return;
@@ -129,10 +134,10 @@ public class WikiClient
 				{
 					CachedContent cached = new CachedContent();
 					cached.setRevision(gameRevision());
+					cached.setFetchedAt(System.currentTimeMillis());
 					for (ContentPage p : pages)
 					{
 						cached.getTitles().add(p.getTitle());
-						cached.getOverrides().add(p.getDisplayOverride());
 					}
 					writeJson(file, cached);
 				}
@@ -197,15 +202,39 @@ public class WikiClient
 					result.add(new ContentPage(e.getKey()));
 				}
 			}
-			result = disambiguate(result);
+			result = disambiguate(dropDuplicateStrategies(result));
 			result.sort(Comparator.comparing(p -> p.getDisplayName().toLowerCase()));
 			onSuccess.accept(result);
 		});
 	}
 
 	/**
-	 * Pages whose short names collide ("Chambers of Xeric/Challenge Mode" and
-	 * "Chambers of Xeric/Challenge Mode/Strategies") are shown with their full page path.
+	 * Drops a "/Strategies" page when another page has the same short name, e.g.
+	 * "Chambers of Xeric/Challenge Mode/Strategies" beside "Chambers of Xeric/Challenge Mode".
+	 */
+	private static List<ContentPage> dropDuplicateStrategies(List<ContentPage> pages)
+	{
+		Set<String> plainNames = new HashSet<>();
+		for (ContentPage p : pages)
+		{
+			if (!p.getTitle().endsWith(STRATEGIES_SUFFIX))
+			{
+				plainNames.add(ContentPage.shortName(p.getTitle()));
+			}
+		}
+		List<ContentPage> out = new ArrayList<>(pages.size());
+		for (ContentPage p : pages)
+		{
+			if (!p.getTitle().endsWith(STRATEGIES_SUFFIX) || !plainNames.contains(ContentPage.shortName(p.getTitle())))
+			{
+				out.add(p);
+			}
+		}
+		return out;
+	}
+
+	/**
+	 * Pages whose short names still collide are shown with their full page path.
 	 */
 	private static List<ContentPage> disambiguate(List<ContentPage> pages)
 	{
@@ -243,7 +272,7 @@ public class WikiClient
 			if (!force && file != null)
 			{
 				CachedPage cached = readJson(file, CachedPage.class);
-				if (cached != null && isCurrent(cached.getRevision()) && cached.getSetups() != null && !cached.getSetups().isEmpty())
+				if (cached != null && isCurrent(cached.getRevision(), cached.getFetchedAt()) && cached.getSetups() != null && !cached.getSetups().isEmpty())
 				{
 					log.debug("{} served from cache (revision {})", page.getTitle(), cached.getRevision());
 					onSuccess.accept(new StrategyPage(page, cached.getRevId(), cached.getFetchedAt(), cached.getSetups()));
@@ -300,9 +329,25 @@ public class WikiClient
 
 	// ---- Cache files ----
 
-	/** A cache entry is current when it was written for the game revision now running. */
-	private boolean isCurrent(int cachedRevision)
+	/**
+	 * Cache entries written before this time are fetched again, so a forced sync also
+	 * refreshes pages not opened until a later session.
+	 */
+	public void setSyncedAt(long syncedAt)
 	{
+		this.syncedAt = syncedAt;
+	}
+
+	/**
+	 * A cache entry is current when it was written for the game revision now running and
+	 * after the last forced sync.
+	 */
+	private boolean isCurrent(int cachedRevision, long fetchedAt)
+	{
+		if (fetchedAt < syncedAt)
+		{
+			return false;
+		}
 		int now = gameRevision();
 		// Before the game cache is known, keep whatever is cached rather than pounding the wiki
 		return now <= 0 || cachedRevision == now;
