@@ -24,9 +24,17 @@ public class OwnedItems
 	private final Map<Integer, Integer> inventory = new HashMap<>();
 	private final Map<Integer, Integer> equipment = new HashMap<>();
 
-	/** True once the bank has been seen this session. */
+	/** True once the bank contents are known, from the live bank or a saved cache. */
 	@Getter
 	private volatile boolean bankSeen;
+
+	/** True while the bank contents come from a saved cache rather than this session's bank. */
+	@Getter
+	private volatile boolean bankFromCache;
+
+	/** When the cached bank was saved, epoch millis, or 0. */
+	@Getter
+	private volatile long cacheSavedAt;
 
 	@Inject
 	private OwnedItems(ItemManager itemManager)
@@ -54,6 +62,7 @@ public class OwnedItems
 			case InventoryID.BANK:
 				target = bank;
 				bankSeen = true;
+				bankFromCache = false;
 				break;
 			case InventoryID.INV:
 				target = inventory;
@@ -92,6 +101,75 @@ public class OwnedItems
 		inventory.clear();
 		equipment.clear();
 		bankSeen = false;
+		bankFromCache = false;
+		cacheSavedAt = 0;
+	}
+
+	/**
+	 * Compact form of the bank for saving: {@code savedAt;id=qty,id=qty,...}
+	 */
+	public String serializeBank()
+	{
+		StringBuilder sb = new StringBuilder(bank.size() * 10 + 16);
+		sb.append(System.currentTimeMillis()).append(';');
+		boolean first = true;
+		for (Map.Entry<Integer, Integer> e : bank.entrySet())
+		{
+			if (!first)
+			{
+				sb.append(',');
+			}
+			first = false;
+			sb.append(e.getKey()).append('=').append(e.getValue());
+		}
+		return sb.toString();
+	}
+
+	/**
+	 * Restores a bank saved by {@link #serializeBank()}. Does nothing if the live bank has
+	 * already been seen this session.
+	 *
+	 * @return true if the cache was applied
+	 */
+	public boolean loadBank(String serialized)
+	{
+		if (bankSeen && !bankFromCache)
+		{
+			return false;
+		}
+		if (serialized == null || serialized.isEmpty())
+		{
+			return false;
+		}
+		int sep = serialized.indexOf(';');
+		if (sep < 0)
+		{
+			return false;
+		}
+		Map<Integer, Integer> loaded = new HashMap<>();
+		try
+		{
+			long savedAt = Long.parseLong(serialized.substring(0, sep));
+			String body = serialized.substring(sep + 1);
+			if (!body.isEmpty())
+			{
+				for (String entry : body.split(","))
+				{
+					int eq = entry.indexOf('=');
+					loaded.put(Integer.parseInt(entry.substring(0, eq)), Integer.parseInt(entry.substring(eq + 1)));
+				}
+			}
+			bank.clear();
+			bank.putAll(loaded);
+			cacheSavedAt = savedAt;
+		}
+		catch (RuntimeException e)
+		{
+			return false;
+		}
+		bankSeen = true;
+		bankFromCache = true;
+		return true;
 	}
 
 	public boolean owns(int canonicalId, boolean includeInventoryAndEquipment)

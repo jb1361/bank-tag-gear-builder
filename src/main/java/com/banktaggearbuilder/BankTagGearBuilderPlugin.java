@@ -28,6 +28,7 @@ import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.events.GameStateChanged;
+import net.runelite.api.events.GameTick;
 import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.WidgetClosed;
 import net.runelite.api.gameval.InterfaceID;
@@ -94,8 +95,16 @@ public class BankTagGearBuilderPlugin extends Plugin
 	@Inject
 	private GeneratedTagStore store;
 
+	/** RS-profile config key holding the cached bank, so each account keeps its own. */
+	private static final String BANK_CACHE_KEY = "bankCache";
+
+	@Inject
+	private ConfigManager configManager;
+
 	private GearBuilderPanel panel;
 	private NavigationButton navButton;
+	/** Set once a bank cache lookup found a profile to read from, so ticks stop retrying. */
+	private boolean bankCacheChecked;
 
 	/** Tags this plugin created. Only touched on the client thread after startUp. */
 	private final List<GeneratedTag> generated = new ArrayList<>();
@@ -147,21 +156,35 @@ public class BankTagGearBuilderPlugin extends Plugin
 	{
 		if (event.getGameState() == GameState.LOGGED_IN)
 		{
+			bankCacheChecked = false;
 			itemNameIndex.ensureBuilt(this::recheckAll);
 		}
 		else if (event.getGameState() == GameState.LOGIN_SCREEN)
 		{
 			ownedItems.clear();
+			bankCacheChecked = false;
 			recheckAll();
+		}
+	}
+
+	@Subscribe
+	public void onGameTick(GameTick event)
+	{
+		// The RS profile can become available a little after LOGGED_IN; keep trying until it does
+		if (!bankCacheChecked && !ownedItems.isBankSeen())
+		{
+			loadBankCache();
 		}
 	}
 
 	@Subscribe
 	public void onItemContainerChanged(ItemContainerChanged event)
 	{
-		boolean firstBankSight = event.getContainerId() == InventoryID.BANK && !ownedItems.isBankSeen();
+		boolean firstBankSight = event.getContainerId() == InventoryID.BANK
+			&& (!ownedItems.isBankSeen() || ownedItems.isBankFromCache());
 		if (ownedItems.update(event.getContainerId(), event.getItemContainer()) && firstBankSight)
 		{
+			saveBankCache();
 			recheckAll();
 		}
 	}
@@ -171,15 +194,61 @@ public class BankTagGearBuilderPlugin extends Plugin
 	{
 		if (event.getGroupId() == InterfaceID.BANKMAIN)
 		{
+			saveBankCache();
 			recheckAll();
 		}
+	}
+
+	private void saveBankCache()
+	{
+		if (!ownedItems.isBankSeen() || ownedItems.isBankFromCache() || configManager.getRSProfileKey() == null)
+		{
+			return;
+		}
+		configManager.setRSProfileConfiguration(BankTagGearBuilderConfig.GROUP, BANK_CACHE_KEY, ownedItems.serializeBank());
+	}
+
+	/**
+	 * @return true if the bank is known, live or from cache
+	 */
+	private boolean loadBankCache()
+	{
+		if (ownedItems.isBankSeen())
+		{
+			return true;
+		}
+		if (client.getGameState() != GameState.LOGGED_IN || configManager.getRSProfileKey() == null)
+		{
+			return false;
+		}
+		bankCacheChecked = true;
+		String cached = configManager.getRSProfileConfiguration(BankTagGearBuilderConfig.GROUP, BANK_CACHE_KEY);
+		if (ownedItems.loadBank(cached))
+		{
+			log.debug("Loaded bank cache saved at {}", ownedItems.getCacheSavedAt());
+			recheckAll();
+			return true;
+		}
+		return false;
+	}
+
+	public boolean isBankFromCache()
+	{
+		return ownedItems.isBankFromCache();
+	}
+
+	public long getBankCacheSavedAt()
+	{
+		return ownedItems.getCacheSavedAt();
 	}
 
 	@Subscribe
 	public void onConfigChanged(ConfigChanged event)
 	{
-		// Ignore our own tag_ writes, otherwise every save would trigger another re-check
-		if (BankTagGearBuilderConfig.GROUP.equals(event.getGroup()) && !event.getKey().startsWith(GeneratedTagStore.KEY_PREFIX))
+		// Ignore our own tag_ and bank cache writes, otherwise every save would trigger another re-check
+		if (BankTagGearBuilderConfig.GROUP.equals(event.getGroup())
+			&& !event.getKey().startsWith(GeneratedTagStore.KEY_PREFIX)
+			&& !event.getKey().equals(BANK_CACHE_KEY))
 		{
 			clientThread.invoke(this::recheckAll);
 			GearBuilderPanel p = panel;
@@ -461,6 +530,15 @@ public class BankTagGearBuilderPlugin extends Plugin
 
 	private void recheckAll()
 	{
+		if (!ownedItems.isBankSeen() && !bankCacheChecked && client.getGameState() == GameState.LOGGED_IN && configManager.getRSProfileKey() != null)
+		{
+			// loadBankCache re-enters recheckAll when a cache is found
+			if (loadBankCache())
+			{
+				return;
+			}
+		}
+
 		List<TagStatus> statuses = new ArrayList<>();
 		boolean canMatch = itemNameIndex.isReady() && ownedItems.isBankSeen() && client.getGameState() == GameState.LOGGED_IN;
 

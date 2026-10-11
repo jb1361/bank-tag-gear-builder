@@ -49,6 +49,8 @@ each tag's wiki page and flags tags whose page changed.
 - Potions are always tagged as their 4-dose variant whether or not you own them, so you can
   restock without rebuilding the tag. Every dose in the bank matches the tag.
 - Bank placeholders are not counted as owned.
+- Your bank contents are cached per account whenever the bank is opened or closed, so after the
+  first session the plugin works straight away at login. Open the bank to refresh the cache.
 - Gear data comes only from the OSRS Wiki. The plugin resolves item names to item ids locally
   from the game cache, so no other services are contacted.
 - The plugin cannot tell whether you meet an item's level or quest requirements. Items you own but

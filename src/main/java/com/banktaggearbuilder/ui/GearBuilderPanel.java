@@ -299,7 +299,14 @@ public class GearBuilderPanel extends PluginPanel
 		{
 			banner.setVisible(false);
 			body.setVisible(true);
-			setWrapped(statusLabel, "Source: OSRS Wiki. Bank seen this session.");
+			if (plugin.isBankFromCache())
+			{
+				setWrapped(statusLabel, "Source: OSRS Wiki. Using your bank as saved on " + formatDate(plugin.getBankCacheSavedAt()) + ". Open the bank to refresh it.");
+			}
+			else
+			{
+				setWrapped(statusLabel, "Source: OSRS Wiki. Bank seen this session.");
+			}
 		}
 		revalidate();
 		repaint();
