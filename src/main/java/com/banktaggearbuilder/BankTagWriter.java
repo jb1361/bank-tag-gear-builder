@@ -180,34 +180,16 @@ public class BankTagWriter
 		Layout layout = new Layout(tag);
 		Set<Integer> placed = new HashSet<>();
 
-		// Columns 4-7 to the right of the equipment block hold two-handed and special attack weapons
-		int[] extraCells = new int[5 * 4];
-		for (int row = 0, i = 0; row < 5; row++)
+		// One 5-row equipment block per style, stacked top to bottom. A single setup has one.
+		List<String> groups = result.getGroups();
+		if (groups.isEmpty())
 		{
-			for (int col = 4; col < w; col++)
-			{
-				extraCells[i++] = w * row + col;
-			}
+			groups = new ArrayList<>();
+			groups.add("");
 		}
-		int extra = 0;
-
-		// Note: Layout.setItemAtPos takes (itemId, pos)
-		for (BuildResult.SlotPick pick : result.getPicks())
+		for (int g = 0; g < groups.size(); g++)
 		{
-			if (!placed.add(pick.getItemId()))
-			{
-				continue;
-			}
-			int pos = equipmentCell(pick.getSlot(), w);
-			if (pos < 0)
-			{
-				if (extra >= extraCells.length)
-				{
-					continue;
-				}
-				pos = extraCells[extra++];
-			}
-			layout.setItemAtPos(pick.getItemId(), pos);
+			placeEquipmentBlock(layout, result, groups.get(g), w * 5 * g, placed);
 		}
 
 		// Inventory below the equipment, 4 wide like the in-game inventory. If the setup has a
@@ -215,7 +197,7 @@ public class BankTagWriter
 		//   I I I I . P . .
 		//   I I I I . R R .
 		//   I I I I . R R .
-		final int invRow = 5;
+		final int invRow = 5 * groups.size();
 		final int invWidth = 4;
 		final int pouchCol = 5;
 		List<BuildResult.InventoryPick> runes = result.getRunePouch();
@@ -259,6 +241,49 @@ public class BankTagWriter
 			r++;
 		}
 		return layout;
+	}
+
+	/**
+	 * Places one style's equipment starting at {@code base} (the first cell of a row). The
+	 * worn slots form the 3-wide block; two-handed, special attack and any extra picks for an
+	 * already filled slot go in columns 4-7 of the same rows.
+	 */
+	private static void placeEquipmentBlock(Layout layout, BuildResult result, String group, int base, Set<Integer> placed)
+	{
+		final int w = BankTagsPlugin.BANK_ITEMS_PER_ROW;
+		int[] extraCells = new int[5 * 4];
+		for (int row = 0, i = 0; row < 5; row++)
+		{
+			for (int col = 4; col < w; col++)
+			{
+				extraCells[i++] = base + w * row + col;
+			}
+		}
+		int extra = 0;
+		Set<EquipmentSlot> filled = new HashSet<>();
+
+		// Note: Layout.setItemAtPos takes (itemId, pos)
+		for (BuildResult.SlotPick pick : result.getPicks())
+		{
+			if (!pick.getGroup().equals(group) || !placed.add(pick.getItemId()))
+			{
+				continue;
+			}
+			int pos = filled.add(pick.getSlot()) ? equipmentCell(pick.getSlot(), w) : -1;
+			if (pos < 0)
+			{
+				if (extra >= extraCells.length)
+				{
+					continue;
+				}
+				pos = extraCells[extra++];
+			}
+			else
+			{
+				pos += base;
+			}
+			layout.setItemAtPos(pick.getItemId(), pos);
+		}
 	}
 
 	/** Grid cell for a worn slot, or -1 for slots that go in the spare columns. */

@@ -1,5 +1,6 @@
 package com.banktaggearbuilder.wiki;
 
+import com.banktaggearbuilder.model.Alternative;
 import com.banktaggearbuilder.model.EquipmentSlot;
 import com.banktaggearbuilder.model.GearSetup;
 import java.util.ArrayList;
@@ -15,18 +16,21 @@ import java.util.regex.Pattern;
 import lombok.Value;
 
 /**
- * Extracts {@code {{Recommended equipment}}} and {@code {{Inventory}}} templates from
- * the wikitext of an OSRS Wiki strategy page.
+ * Extracts {@code {{Recommended equipment}}}, {@code {{Inventory}}} and {@code {{Rune pouch}}}
+ * templates from the wikitext of an OSRS Wiki strategy page.
  */
 public class WikiTextParser
 {
 	private static final Pattern SLOT_PARAM = Pattern.compile("^(head|neck|cape|body|legs|weapon|2h|shield|ammo|hands|feet|ring|special)([1-5])$");
 	private static final Pattern BR = Pattern.compile("(?i)<\\s*/?\\s*br\\s*/?\\s*>");
+	private static final Pattern BR_AFTER_JOIN = Pattern.compile("(?i)(\\+|\\band)\\s*<\\s*/?\\s*br\\s*/?\\s*>\\s*");
+	private static final Pattern BR_BEFORE_JOIN = Pattern.compile("(?i)<\\s*/?\\s*br\\s*/?\\s*>\\s*(\\+|and\\b)");
 	private static final Pattern REF = Pattern.compile("(?is)<ref[^>]*/>|<ref[^>]*>.*?</ref>");
 	private static final Pattern COMMENT = Pattern.compile("(?s)<!--.*?-->");
 	private static final Pattern HTML_TAG = Pattern.compile("<[^>]+>");
 	private static final Pattern WIKILINK = Pattern.compile("\\[\\[([^\\]|]+)(?:\\|[^\\]]*)?\\]\\]");
 	private static final Pattern TABBER_LABEL = Pattern.compile("(?m)^\\s*([^=\\n|]+?)\\s*=\\s*$");
+	private static final Pattern HEADING = Pattern.compile("(?m)^(={2,6})\\s*(.+?)\\s*\\1\\s*$");
 
 	/**
 	 * Wiki templates that stand in for "any cheap X". Listed best-first.
@@ -63,12 +67,14 @@ public class WikiTextParser
 	public List<GearSetup> parse(String wikitext)
 	{
 		String text = COMMENT.matcher(wikitext).replaceAll("");
+		List<Template> headings = findHeadings(text);
 		List<GearSetup> setups = new ArrayList<>();
 
 		for (Template t : findTemplates(text, "recommended equipment"))
 		{
 			GearSetup setup = new GearSetup();
 			setup.setStyle(cleanText(t.getParams().getOrDefault("style", "")));
+			setup.setSection(sectionFor(headings, t.getStart()));
 			for (Map.Entry<String, String> e : t.getParams().entrySet())
 			{
 				Matcher m = SLOT_PARAM.matcher(e.getKey());
@@ -78,7 +84,7 @@ public class WikiTextParser
 				}
 				EquipmentSlot slot = EquipmentSlot.fromWikiParam(m.group(1));
 				int rank = Integer.parseInt(m.group(2));
-				List<List<String>> alternatives = parseAlternatives(e.getValue());
+				List<Alternative> alternatives = parseAlternatives(e.getValue());
 				if (slot != null && !alternatives.isEmpty())
 				{
 					setup.addRank(slot, rank, alternatives);
@@ -101,28 +107,93 @@ public class WikiTextParser
 			}
 		}
 
-		return setups;
+		return addCombined(setups);
+	}
+
+	/**
+	 * Where a section holds several tables (melee, ranged and magic switches for a raid, for
+	 * example), adds a combined setup for the section that builds all of them into one tag.
+	 */
+	private static List<GearSetup> addCombined(List<GearSetup> setups)
+	{
+		Map<String, List<GearSetup>> bySection = new LinkedHashMap<>();
+		for (GearSetup s : setups)
+		{
+			bySection.computeIfAbsent(s.getSection(), k -> new ArrayList<>()).add(s);
+		}
+
+		List<GearSetup> out = new ArrayList<>();
+		for (Map.Entry<String, List<GearSetup>> e : bySection.entrySet())
+		{
+			List<GearSetup> group = e.getValue();
+			if (group.size() > 1)
+			{
+				GearSetup combined = new GearSetup();
+				combined.setSection(e.getKey());
+				List<String> styles = new ArrayList<>();
+				for (GearSetup s : group)
+				{
+					styles.add(s.getStyle().isEmpty() ? "setup " + (styles.size() + 1) : s.getStyle());
+				}
+				combined.setStyle("All (" + String.join(" + ", styles) + ")");
+				combined.setComponents(new ArrayList<>(group));
+				combined.setInventory(union(group, true));
+				combined.setRunePouch(union(group, false));
+				out.add(combined);
+			}
+			out.addAll(group);
+		}
+		return out;
+	}
+
+	private static List<List<String>> union(List<GearSetup> setups, boolean inventory)
+	{
+		Map<String, List<String>> unique = new LinkedHashMap<>();
+		for (GearSetup s : setups)
+		{
+			for (List<String> names : inventory ? s.getInventory() : s.getRunePouch())
+			{
+				unique.putIfAbsent(names.get(0).toLowerCase(Locale.ROOT), names);
+			}
+		}
+		return new ArrayList<>(unique.values());
 	}
 
 	/**
 	 * Splits a slot value such as {@code {{plink|A}} / {{plink|B|pic=C}}{{efn|...}}} into
-	 * alternatives, each with its candidate item names.
+	 * alternatives. Items joined with "+" or "and" form one alternative with several items.
 	 */
-	List<List<String>> parseAlternatives(String value)
+	List<Alternative> parseAlternatives(String value)
 	{
 		String v = removeTemplates(value, "efn");
 		v = REF.matcher(v).replaceAll("");
+		// A line break next to "+" or "and" is just wrapping, not a new alternative
+		v = BR_AFTER_JOIN.matcher(v).replaceAll("$1 ");
+		v = BR_BEFORE_JOIN.matcher(v).replaceAll(" $1");
 		v = BR.matcher(v).replaceAll(" / ");
+		v = replaceTopLevelWord(v, "and", "+");
 
-		List<List<String>> alternatives = new ArrayList<>();
-		for (String piece : splitTopLevel(v, "/>+"))
+		List<Alternative> alternatives = new ArrayList<>();
+		for (String piece : splitTopLevel(v, "/>"))
 		{
-			List<String> names = extractNames(piece);
-			if (!names.isEmpty())
+			Alternative alternative = new Alternative();
+			for (String part : splitTopLevel(piece, "+"))
 			{
-				alternatives.add(names);
+				List<String> names = extractNames(part);
+				if (!names.isEmpty())
+				{
+					alternative.getItems().add(names);
+				}
+			}
+			if (!alternative.getItems().isEmpty())
+			{
+				alternatives.add(alternative);
 			}
 		}
+
+		// "A and / B" (an "and" followed by a line break) leaves an empty-looking piece between
+		// two real ones; merge an alternative that has no items into its neighbour. Already
+		// handled above by skipping empties, so nothing more to do here.
 		return alternatives;
 	}
 
@@ -167,7 +238,8 @@ public class WikiTextParser
 		}
 
 		String plain = cleanText(removeTemplates(piece, null));
-		if (!plain.isEmpty() && !plain.equalsIgnoreCase("n/a") && !plain.equalsIgnoreCase("none"))
+		if (!plain.isEmpty() && !plain.equalsIgnoreCase("n/a") && !plain.equalsIgnoreCase("none")
+			&& !plain.toLowerCase(Locale.ROOT).startsWith("see "))
 		{
 			names.add(plain);
 		}
@@ -212,44 +284,27 @@ public class WikiTextParser
 		return blocks;
 	}
 
-	/** Adds one block for the inventory (and rune pouch, if any) found in {@code section}. */
+	/** Adds one block per inventory (with the section's rune pouch, if any) found in {@code section}. */
 	private void addBlock(List<InventoryBlock> blocks, String label, String section)
 	{
 		List<Template> inventories = findTemplates(section, "inventory");
 		List<Template> pouches = findTemplates(section, "rune pouch");
-		List<List<String>> runes = pouches.isEmpty() ? new ArrayList<>() : runeEntries(pouches.get(0));
 		if (inventories.isEmpty())
 		{
-			if (!runes.isEmpty())
+			if (!pouches.isEmpty())
 			{
-				blocks.add(new InventoryBlock(label, new ArrayList<>(), runes));
+				blocks.add(new InventoryBlock(label, new ArrayList<>(), runeEntries(pouches.get(0))));
 			}
 			return;
 		}
-		for (Template t : inventories)
+		for (int i = 0; i < inventories.size(); i++)
 		{
-			blocks.add(new InventoryBlock(label, inventoryEntries(t), runes));
+			// Pair the i-th inventory with the i-th pouch when a section lists several of each
+			// (a table of example setups), otherwise share the only pouch
+			Template pouch = pouches.isEmpty() ? null : pouches.get(Math.min(i, pouches.size() - 1));
+			blocks.add(new InventoryBlock(label, inventoryEntries(inventories.get(i)),
+				pouch == null ? new ArrayList<>() : runeEntries(pouch)));
 		}
-	}
-
-	private List<List<String>> runeEntries(Template pouch)
-	{
-		Map<String, List<String>> unique = new LinkedHashMap<>();
-		for (int i = 1; i <= 4; i++)
-		{
-			String value = pouch.getParams().get(String.valueOf(i));
-			if (value == null || value.trim().isEmpty())
-			{
-				continue;
-			}
-			List<List<String>> alternatives = parseAlternatives(value);
-			if (!alternatives.isEmpty())
-			{
-				List<String> names = alternatives.get(0);
-				unique.putIfAbsent(names.get(0).toLowerCase(Locale.ROOT), names);
-			}
-		}
-		return new ArrayList<>(unique.values());
 	}
 
 	private List<List<String>> inventoryEntries(Template inventory)
@@ -262,17 +317,42 @@ public class WikiTextParser
 			{
 				continue;
 			}
-			List<List<String>> alternatives = parseAlternatives(value);
+			List<Alternative> alternatives = parseAlternatives(value);
 			if (alternatives.isEmpty())
 			{
 				continue;
 			}
-			List<String> names = alternatives.get(0);
+			List<String> names = alternatives.get(0).getItems().get(0);
 			unique.putIfAbsent(names.get(0).toLowerCase(Locale.ROOT), names);
 		}
 		return new ArrayList<>(unique.values());
 	}
 
+	private List<List<String>> runeEntries(Template pouch)
+	{
+		Map<String, List<String>> unique = new LinkedHashMap<>();
+		for (int i = 1; i <= 4; i++)
+		{
+			String value = pouch.getParams().get(String.valueOf(i));
+			if (value == null || value.trim().isEmpty())
+			{
+				continue;
+			}
+			List<Alternative> alternatives = parseAlternatives(value);
+			if (!alternatives.isEmpty())
+			{
+				List<String> names = alternatives.get(0).getItems().get(0);
+				unique.putIfAbsent(names.get(0).toLowerCase(Locale.ROOT), names);
+			}
+		}
+		return new ArrayList<>(unique.values());
+	}
+
+	/**
+	 * Picks the inventory for a style: an exact or partial label match, the only inventory if
+	 * there is one, or, when a page lists several inventories that are not labelled by style
+	 * (a table of example setups), the union of all of them.
+	 */
 	private InventoryBlock matchInventory(String style, List<InventoryBlock> inventories)
 	{
 		if (inventories.isEmpty())
@@ -298,12 +378,77 @@ public class WikiTextParser
 				}
 			}
 		}
-		return inventories.size() == 1 ? inventories.get(0) : null;
+		if (inventories.size() == 1)
+		{
+			return inventories.get(0);
+		}
+
+		Map<String, List<String>> entries = new LinkedHashMap<>();
+		Map<String, List<String>> runes = new LinkedHashMap<>();
+		for (InventoryBlock b : inventories)
+		{
+			for (List<String> names : b.getEntries())
+			{
+				entries.putIfAbsent(names.get(0).toLowerCase(Locale.ROOT), names);
+			}
+			for (List<String> names : b.getRunePouch())
+			{
+				runes.putIfAbsent(names.get(0).toLowerCase(Locale.ROOT), names);
+			}
+		}
+		return new InventoryBlock("", new ArrayList<>(entries.values()), new ArrayList<>(runes.values()));
 	}
 
 	private static String normalize(String s)
 	{
 		return s == null ? "" : s.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
+	}
+
+	/** Headings as pseudo-templates: name = heading text, params holds the level. */
+	private static List<Template> findHeadings(String text)
+	{
+		List<Template> out = new ArrayList<>();
+		Matcher m = HEADING.matcher(text);
+		while (m.find())
+		{
+			Map<String, String> params = new HashMap<>();
+			params.put("level", String.valueOf(m.group(1).length()));
+			out.add(new Template(cleanText(m.group(2)), params, m.start(), m.end()));
+		}
+		return out;
+	}
+
+	/**
+	 * The heading a position sits under. A generic "Equipment" sub-heading is replaced by its
+	 * parent heading so a boss's equipment table is labelled with the boss.
+	 */
+	private static String sectionFor(List<Template> headings, int position)
+	{
+		Template nearest = null;
+		for (Template h : headings)
+		{
+			if (h.getStart() < position)
+			{
+				nearest = h;
+			}
+		}
+		if (nearest == null)
+		{
+			return "";
+		}
+		if (nearest.getName().equalsIgnoreCase("equipment") && Integer.parseInt(nearest.getParams().get("level")) > 2)
+		{
+			// Walk back to the heading this one belongs to: a sibling or parent, skipping deeper ones
+			int level = Integer.parseInt(nearest.getParams().get("level"));
+			for (int i = headings.indexOf(nearest) - 1; i >= 0; i--)
+			{
+				if (Integer.parseInt(headings.get(i).getParams().get("level")) <= level)
+				{
+					return headings.get(i).getName();
+				}
+			}
+		}
+		return nearest.getName();
 	}
 
 	/**
@@ -444,6 +589,47 @@ public class WikiTextParser
 		}
 		parts.add(cur.toString());
 		return parts;
+	}
+
+	/**
+	 * Replaces a whole word that occurs outside templates and links (so "Pestle and mortar"
+	 * inside a plink is left alone) with {@code replacement}.
+	 */
+	private static String replaceTopLevelWord(String s, String word, String replacement)
+	{
+		StringBuilder out = new StringBuilder(s.length());
+		int depth = 0;
+		int i = 0;
+		while (i < s.length())
+		{
+			char c = s.charAt(i);
+			char n = i + 1 < s.length() ? s.charAt(i + 1) : '\0';
+			if ((c == '{' && n == '{') || (c == '[' && n == '['))
+			{
+				depth++;
+				out.append(c).append(n);
+				i += 2;
+				continue;
+			}
+			if ((c == '}' && n == '}') || (c == ']' && n == ']'))
+			{
+				depth--;
+				out.append(c).append(n);
+				i += 2;
+				continue;
+			}
+			if (depth == 0 && s.regionMatches(true, i, word, 0, word.length())
+				&& (i == 0 || Character.isWhitespace(s.charAt(i - 1)))
+				&& (i + word.length() >= s.length() || Character.isWhitespace(s.charAt(i + word.length()))))
+			{
+				out.append(replacement);
+				i += word.length();
+				continue;
+			}
+			out.append(c);
+			i++;
+		}
+		return out.toString();
 	}
 
 	/** Removes templates named {@code name}, or every top-level template when {@code name} is null. */

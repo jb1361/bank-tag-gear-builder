@@ -16,6 +16,8 @@ public class BuildResult
 	@Value
 	public static class SlotPick
 	{
+		/** Style of the component setup this pick belongs to; empty for a single setup. */
+		String group;
 		EquipmentSlot slot;
 		int rank;
 		String name;
@@ -28,11 +30,27 @@ public class BuildResult
 	@Value
 	public static class MissingSlot
 	{
+		String group;
 		EquipmentSlot slot;
 		/** Cheapest recommended item, or null if no name on the list could be resolved. */
 		String suggestionName;
 		int suggestionItemId;
 		long suggestionPrice;
+	}
+
+	/** Group names in the order they first appear among picks and missing slots. */
+	public List<String> getGroups()
+	{
+		Set<String> groups = new LinkedHashSet<>();
+		for (SlotPick pick : picks)
+		{
+			groups.add(pick.getGroup());
+		}
+		for (MissingSlot miss : missing)
+		{
+			groups.add(miss.getGroup());
+		}
+		return new ArrayList<>(groups);
 	}
 
 	@Value

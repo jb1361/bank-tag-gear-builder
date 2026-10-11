@@ -1,5 +1,6 @@
 package com.banktaggearbuilder;
 
+import com.banktaggearbuilder.model.Alternative;
 import com.banktaggearbuilder.model.BuildResult;
 import com.banktaggearbuilder.model.EquipmentSlot;
 import com.banktaggearbuilder.model.GearSetup;
@@ -75,14 +76,16 @@ public class GearMatcher
 	{
 		BuildResult result = new BuildResult();
 
-		for (EquipmentSlot slot : EquipmentSlot.values())
+		if (setup.isCombined())
 		{
-			List<List<List<String>>> ranks = setup.getSlots().get(slot);
-			if (ranks == null || ranks.isEmpty())
+			for (GearSetup component : setup.getComponents())
 			{
-				continue;
+				matchEquipment(component, component.getStyle(), includeInventoryAndEquipment, result);
 			}
-			matchSlot(slot, ranks, includeInventoryAndEquipment, result);
+		}
+		else
+		{
+			matchEquipment(setup, "", includeInventoryAndEquipment, result);
 		}
 
 		if (includeInventoryItems)
@@ -97,7 +100,10 @@ public class GearMatcher
 				Resolved r = firstOwned(names, includeInventoryAndEquipment, result);
 				if (r != null)
 				{
-					result.getInventory().add(new BuildResult.InventoryPick(r.getName(), r.getItemId(), r.isExact()));
+					if (!containsItem(result, r.getItemId()))
+					{
+						result.getInventory().add(new BuildResult.InventoryPick(r.getName(), r.getItemId(), r.isExact()));
+					}
 				}
 				else
 				{
@@ -114,7 +120,40 @@ public class GearMatcher
 		return result;
 	}
 
-	private void matchSlot(EquipmentSlot slot, List<List<List<String>>> ranks, boolean includeInvEquip, BuildResult result)
+	private void matchEquipment(GearSetup setup, String group, boolean includeInvEquip, BuildResult result)
+	{
+		for (EquipmentSlot slot : EquipmentSlot.values())
+		{
+			List<List<Alternative>> ranks = setup.getSlots().get(slot);
+			if (ranks == null || ranks.isEmpty())
+			{
+				continue;
+			}
+			matchSlot(group, slot, ranks, includeInvEquip, result);
+		}
+	}
+
+	/** True if an equipment pick or inventory pick already carries this item. */
+	private static boolean containsItem(BuildResult result, int itemId)
+	{
+		for (BuildResult.SlotPick pick : result.getPicks())
+		{
+			if (pick.getItemId() == itemId)
+			{
+				return true;
+			}
+		}
+		for (BuildResult.InventoryPick pick : result.getInventory())
+		{
+			if (pick.getItemId() == itemId)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private void matchSlot(String group, EquipmentSlot slot, List<List<Alternative>> ranks, boolean includeInvEquip, BuildResult result)
 	{
 		int bestSuggestion = -1;
 		String bestSuggestionName = null;
@@ -124,32 +163,47 @@ public class GearMatcher
 
 		for (int r = 0; r < ranks.size(); r++)
 		{
-			for (List<String> names : ranks.get(r))
+			for (Alternative alternative : ranks.get(r))
 			{
-				Resolved pick = firstOwned(names, includeInvEquip, result);
-				if (pick != null)
+				// Every owned item of the alternative is picked ("Twisted bow + Toxic blowpipe")
+				List<Resolved> ownedItems = new ArrayList<>();
+				for (List<String> names : alternative.getItems())
 				{
-					result.getPicks().add(new BuildResult.SlotPick(slot, r + 1, pick.getName(), pick.getItemId(), pick.isExact()));
+					Resolved pick = firstOwned(names, includeInvEquip, result);
+					if (pick != null)
+					{
+						ownedItems.add(pick);
+					}
+				}
+				if (!ownedItems.isEmpty())
+				{
+					for (Resolved pick : ownedItems)
+					{
+						result.getPicks().add(new BuildResult.SlotPick(group, slot, r + 1, pick.getName(), pick.getItemId(), pick.isExact()));
+					}
 					return;
 				}
 
 				// Not owned: remember the cheapest option as the suggestion for this slot
-				for (String name : names)
+				for (List<String> names : alternative.getItems())
 				{
-					for (int id : index.lookup(name))
+					for (String name : names)
 					{
-						int canon = OwnedItems.canonical(itemManager, id);
-						if (fallback < 0)
+						for (int id : index.lookup(name))
 						{
-							fallback = canon;
-							fallbackName = name;
-						}
-						long price = itemManager.getItemPrice(canon);
-						if (price > 0 && price < bestPrice)
-						{
-							bestPrice = price;
-							bestSuggestion = canon;
-							bestSuggestionName = name;
+							int canon = OwnedItems.canonical(itemManager, id);
+							if (fallback < 0)
+							{
+								fallback = canon;
+								fallbackName = name;
+							}
+							long price = itemManager.getItemPrice(canon);
+							if (price > 0 && price < bestPrice)
+							{
+								bestPrice = price;
+								bestSuggestion = canon;
+								bestSuggestionName = name;
+							}
 						}
 					}
 				}
@@ -162,7 +216,7 @@ public class GearMatcher
 			bestSuggestionName = fallbackName;
 			bestPrice = 0;
 		}
-		result.getMissing().add(new BuildResult.MissingSlot(slot, bestSuggestionName, bestSuggestion, bestPrice));
+		result.getMissing().add(new BuildResult.MissingSlot(group, slot, bestSuggestionName, bestSuggestion, bestPrice));
 	}
 
 	/**
@@ -293,7 +347,10 @@ public class GearMatcher
 		}
 		// Lowest id is the ordinary item; higher duplicates are minigame or quest copies
 		int id = itemManager.canonicalize(ids.get(0));
-		result.getInventory().add(new BuildResult.InventoryPick(fourDose, id, true));
+		if (!containsItem(result, id))
+		{
+			result.getInventory().add(new BuildResult.InventoryPick(fourDose, id, true));
+		}
 	}
 
 	/**
@@ -329,14 +386,16 @@ public class GearMatcher
 	}
 
 	/**
-	 * Fills {@code into} with slot display name to item name, used for before/after diffs.
+	 * Fills {@code into} with "[style] slot" to item name, used for before/after diffs.
 	 */
 	public static void summarize(BuildResult result, Map<String, String> into)
 	{
 		into.clear();
 		for (BuildResult.SlotPick pick : result.getPicks())
 		{
-			into.put(pick.getSlot().getDisplayName(), pick.getName());
+			String key = (pick.getGroup().isEmpty() ? "" : pick.getGroup() + " ") + pick.getSlot().getDisplayName();
+			// Several picks in one slot ("Twisted bow + Toxic blowpipe") are joined
+			into.merge(key, pick.getName(), (a, b) -> a + " + " + b);
 		}
 	}
 }

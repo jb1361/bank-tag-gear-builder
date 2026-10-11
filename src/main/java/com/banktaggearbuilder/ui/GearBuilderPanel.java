@@ -166,8 +166,7 @@ public class GearBuilderPanel extends PluginPanel
 				super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
 				if (value instanceof GearSetup)
 				{
-					String style = ((GearSetup) value).getStyle();
-					setText(style.isEmpty() ? "Default setup" : style);
+					setText(((GearSetup) value).getDisplayName());
 				}
 				return this;
 			}
@@ -475,17 +474,32 @@ public class GearBuilderPanel extends PluginPanel
 	{
 		resultPanel.removeAll();
 
-		for (BuildResult.SlotPick pick : result.getPicks())
+		List<String> groups = result.getGroups();
+		for (String group : groups)
 		{
-			resultPanel.add(itemRow(pick.getItemId(), pick.getSlot().getDisplayName(), pick.getName() + "  (#" + pick.getRank() + ")", Color.WHITE));
-		}
-		for (BuildResult.MissingSlot miss : result.getMissing())
-		{
-			String detail = miss.getSuggestionName() == null
-				? "none owned"
-				: "none owned. Cheapest: " + miss.getSuggestionName()
-				+ (miss.getSuggestionPrice() > 0 ? " (" + QuantityFormatter.quantityToStackSize(miss.getSuggestionPrice()) + " gp)" : "");
-			resultPanel.add(itemRow(miss.getSuggestionItemId(), miss.getSlot().getDisplayName(), detail, MUTED));
+			if (groups.size() > 1 || !group.isEmpty())
+			{
+				resultPanel.add(header(group.isEmpty() ? "Equipment" : group));
+			}
+			for (BuildResult.SlotPick pick : result.getPicks())
+			{
+				if (pick.getGroup().equals(group))
+				{
+					resultPanel.add(itemRow(pick.getItemId(), pick.getSlot().getDisplayName(), pick.getName() + "  (#" + pick.getRank() + ")", Color.WHITE));
+				}
+			}
+			for (BuildResult.MissingSlot miss : result.getMissing())
+			{
+				if (!miss.getGroup().equals(group))
+				{
+					continue;
+				}
+				String detail = miss.getSuggestionName() == null
+					? "none owned"
+					: "none owned. Cheapest: " + miss.getSuggestionName()
+					+ (miss.getSuggestionPrice() > 0 ? " (" + QuantityFormatter.quantityToStackSize(miss.getSuggestionPrice()) + " gp)" : "");
+				resultPanel.add(itemRow(miss.getSuggestionItemId(), miss.getSlot().getDisplayName(), detail, MUTED));
+			}
 		}
 
 		if (!result.getInventory().isEmpty())
