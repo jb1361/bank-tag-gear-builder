@@ -575,7 +575,7 @@ public class GearBuilderPanel extends PluginPanel
 		}
 		if (status.isUpdateAvailable())
 		{
-			row.add(smallText("Update available from your last build", UPDATE_COLOR));
+			row.add(smallText("Update available", UPDATE_COLOR));
 			for (String change : status.getChanges())
 			{
 				row.add(smallText("  " + change, Color.WHITE));

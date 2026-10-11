@@ -23,10 +23,12 @@ as a suggestion. Each tag shows the source and the date it was pulled.
 
 ## Updating a tag
 
-A tag only changes when you build it. Pick the same content and setup, press Build, check the
-result, then press "Update tag" under the result or "Apply update" on the tag's row, which
-appears when the build differs from what the tag holds. The result you see is exactly what is
-written. Nothing is re-scanned behind your back, so grabbing gear or trading never alters a tab.
+Generated tags are re-matched against what you own whenever the bank is opened or closed and
+whenever you press Build. If a better-ranked item is now owned or a tagged item is gone, the
+tag's row shows "Update available" with before/after lines and an "Apply update" button. The
+tag itself is never rewritten until you press that button or "Update tag" under a build
+result, and what gets written is exactly the result shown, so grabbing gear or trading never
+alters a tab on its own.
 
 The chat message names what changed (e.g. "Neck: Amulet of fury replaced Amulet of glory(6)").
 Tags you edited by hand in Bank Tags are flagged in the panel and the plugin asks before

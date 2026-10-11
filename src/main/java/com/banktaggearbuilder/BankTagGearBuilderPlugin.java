@@ -130,7 +130,7 @@ public class BankTagGearBuilderPlugin extends Plugin
 			generated.addAll(store.loadAll());
 			if (client.getGameState() == GameState.LOGGED_IN)
 			{
-				itemNameIndex.ensureBuilt(this::recheckAll);
+				itemNameIndex.ensureBuilt(this::rescanAll);
 				ownedItems.update(InventoryID.INV, client.getItemContainer(InventoryID.INV));
 				ownedItems.update(InventoryID.WORN, client.getItemContainer(InventoryID.WORN));
 			}
@@ -159,7 +159,7 @@ public class BankTagGearBuilderPlugin extends Plugin
 		if (event.getGameState() == GameState.LOGGED_IN)
 		{
 			bankCacheChecked = false;
-			itemNameIndex.ensureBuilt(this::recheckAll);
+			itemNameIndex.ensureBuilt(this::rescanAll);
 		}
 		else if (event.getGameState() == GameState.LOGIN_SCREEN)
 		{
@@ -197,6 +197,7 @@ public class BankTagGearBuilderPlugin extends Plugin
 		if (event.getGroupId() == InterfaceID.BANKMAIN)
 		{
 			saveBankCache();
+			rescanAll();
 		}
 	}
 
@@ -227,7 +228,7 @@ public class BankTagGearBuilderPlugin extends Plugin
 		if (ownedItems.loadBank(cached))
 		{
 			log.debug("Loaded bank cache saved at {}", ownedItems.getCacheSavedAt());
-			recheckAll();
+			rescanAll();
 			return true;
 		}
 		return false;
@@ -575,15 +576,33 @@ public class BankTagGearBuilderPlugin extends Plugin
 	}
 
 	/**
-	 * Refreshes the generated-tag list in the panel. Tags are never re-matched here: a tag only
-	 * changes through Build followed by "Update tag" or "Apply update", so the player's bank,
-	 * inventory and trades never alter a tab behind their back.
+	 * Re-matches every generated tag against what the player has now and offers any
+	 * differences as pending updates. Runs on bank open, bank close and Build. The tag itself
+	 * is only written when the player applies the update.
+	 */
+	private void rescanAll()
+	{
+		if (!itemNameIndex.isReady() || !ownedItems.isBankSeen() || client.getGameState() != GameState.LOGGED_IN)
+		{
+			recheckAll();
+			return;
+		}
+		for (GeneratedTag g : generated)
+		{
+			pendingBuilds.put(g.getTag(), matcher.match(g.getSetup(), config.matchEquippedAndInventory(), config.includeInventory()));
+		}
+		recheckAll();
+	}
+
+	/**
+	 * Refreshes the generated-tag list in the panel from the pending scan results. Nothing is
+	 * re-matched here and no tag is written.
 	 */
 	private void recheckAll()
 	{
 		if (!ownedItems.isBankSeen() && !bankCacheChecked && client.getGameState() == GameState.LOGGED_IN && configManager.getRSProfileKey() != null)
 		{
-			// loadBankCache re-enters recheckAll when a cache is found
+			// loadBankCache rescans, which re-enters recheckAll, when a cache is found
 			if (loadBankCache())
 			{
 				return;
