@@ -108,6 +108,8 @@ public class BankTagGearBuilderPlugin extends Plugin
 
 	/** Tags this plugin created. Only touched on the client thread after startUp. */
 	private final List<GeneratedTag> generated = new ArrayList<>();
+	/** The statuses last shown in the panel, by tag. What the player sees is what gets applied. */
+	private final Map<String, TagStatus> lastStatuses = new LinkedHashMap<>();
 
 	@Override
 	protected void startUp()
@@ -338,13 +340,19 @@ public class BankTagGearBuilderPlugin extends Plugin
 			{
 				generated.add(g);
 			}
-			chat("Created tag tab '" + tag + "' with " + result.getTagItemIds().size() + " items."
+			chat((existing == null ? "Created" : "Updated") + " tag tab '" + tag + "' with " + result.getTagItemIds().size() + " items."
 				+ (writer.isBankOpen() ? " It is open now; the tab appears in the strip next time you open the bank." : ""));
-			recheckAll();
+			// The built result is the truth for this tag until the next Build; no re-scan
+			lastStatuses.put(tag, new TagStatus(g, result, false, Collections.emptyList()));
+			pushStatuses();
 			SwingUtilities.invokeLater(() -> onDone.accept(tag));
 		});
 	}
 
+	/**
+	 * Writes the result the panel is currently showing for this tag. No re-scan happens here:
+	 * the last Build is the source of truth, so what the player saw is what gets applied.
+	 */
 	public void applyUpdate(String tag)
 	{
 		clientThread.invoke(() ->
@@ -354,14 +362,30 @@ public class BankTagGearBuilderPlugin extends Plugin
 			{
 				return;
 			}
-			BuildResult result = matcher.match(g.getSetup(), config.matchEquippedAndInventory(), config.includeInventory());
+			TagStatus shown = lastStatuses.get(tag);
+			BuildResult result = shown != null && shown.getLatest() != null
+				? shown.getLatest()
+				: matcher.match(g.getSetup(), config.matchEquippedAndInventory(), config.includeInventory());
 			List<String> changes = diff(g, result);
 			applyResult(g, result, g.getItemIds());
 			chat(changes.isEmpty()
 				? "Rebuilt tag '" + g.getTag() + "' with the current picks and layout."
 				: "Updated tag '" + g.getTag() + "': " + String.join("; ", changes));
-			recheckAll();
+
+			// Reflect the applied result in the panel without re-scanning
+			lastStatuses.put(tag, new TagStatus(g, result, false, Collections.emptyList()));
+			pushStatuses();
 		});
+	}
+
+	private void pushStatuses()
+	{
+		List<TagStatus> statuses = new ArrayList<>(lastStatuses.values());
+		GearBuilderPanel p = panel;
+		if (p != null)
+		{
+			SwingUtilities.invokeLater(() -> p.setStatuses(statuses));
+		}
 	}
 
 	public void removeGenerated(String tag, boolean deleteBankTag)
@@ -606,11 +630,12 @@ public class BankTagGearBuilderPlugin extends Plugin
 			statuses.add(new TagStatus(g, result, userEdited, changes));
 		}
 
-		GearBuilderPanel p = panel;
-		if (p != null)
+		lastStatuses.clear();
+		for (TagStatus s : statuses)
 		{
-			SwingUtilities.invokeLater(() -> p.setStatuses(statuses));
+			lastStatuses.put(s.getTag().getTag(), s);
 		}
+		pushStatuses();
 	}
 
 	private void chat(String message)
