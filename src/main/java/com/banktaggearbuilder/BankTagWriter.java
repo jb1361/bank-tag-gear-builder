@@ -210,29 +210,53 @@ public class BankTagWriter
 			layout.setItemAtPos(pick.getItemId(), pos);
 		}
 
-		int pos = w * 5;
-		for (BuildResult.InventoryPick pick : result.getInventory())
+		// Inventory below the equipment, 4 wide like the in-game inventory. If the setup has a
+		// rune pouch, the pouch sits to the right with its runes in a 2-wide block beneath it:
+		//   I I I I . P . .
+		//   I I I I . R R .
+		//   I I I I . R R .
+		final int invRow = 5;
+		final int invWidth = 4;
+		final int pouchCol = 5;
+		List<BuildResult.InventoryPick> runes = result.getRunePouch();
+		BuildResult.InventoryPick pouch = null;
+		if (!runes.isEmpty())
 		{
-			if (placed.add(pick.getItemId()))
+			for (BuildResult.InventoryPick pick : result.getInventory())
 			{
-				layout.setItemAtPos(pick.getItemId(), pos++);
+				if (pick.getName().toLowerCase().contains("rune pouch"))
+				{
+					pouch = pick;
+					break;
+				}
 			}
 		}
 
-		// Rune pouch contents on their own row below the inventory
-		if (!result.getRunePouch().isEmpty())
+		int i = 0;
+		for (BuildResult.InventoryPick pick : result.getInventory())
 		{
-			if (pos % w != 0)
+			if (pick == pouch || !placed.add(pick.getItemId()))
 			{
-				pos += w - (pos % w);
+				continue;
 			}
-			for (BuildResult.InventoryPick pick : result.getRunePouch())
+			layout.setItemAtPos(pick.getItemId(), w * (invRow + i / invWidth) + i % invWidth);
+			i++;
+		}
+
+		if (pouch != null)
+		{
+			layout.setItemAtPos(pouch.getItemId(), w * invRow + pouchCol);
+			placed.add(pouch.getItemId());
+		}
+		int r = 0;
+		for (BuildResult.InventoryPick rune : runes)
+		{
+			if (!placed.add(rune.getItemId()))
 			{
-				if (placed.add(pick.getItemId()))
-				{
-					layout.setItemAtPos(pick.getItemId(), pos++);
-				}
+				continue;
 			}
+			layout.setItemAtPos(rune.getItemId(), w * (invRow + 1 + r / 2) + pouchCol + r % 2);
+			r++;
 		}
 		return layout;
 	}
