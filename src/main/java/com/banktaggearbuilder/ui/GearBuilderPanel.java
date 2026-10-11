@@ -83,6 +83,7 @@ public class GearBuilderPanel extends PluginPanel
 	private List<ContentPage> allContent = new ArrayList<>();
 	private boolean contentLoading;
 	private ContentPage selectedContent;
+	private List<TagStatus> currentStatuses = new ArrayList<>();
 	private StrategyPage currentPage;
 	private BuildResult currentResult;
 
@@ -398,7 +399,7 @@ public class GearBuilderPanel extends PluginPanel
 		}
 		buildButton.setEnabled(false);
 		setWrapped(statusLabel, "Matching against your bank...");
-		plugin.build(setup, result ->
+		plugin.build(currentPage.getPage(), setup, result ->
 		{
 			buildButton.setEnabled(true);
 			currentResult = result;
@@ -431,11 +432,25 @@ public class GearBuilderPanel extends PluginPanel
 			setWrapped(statusLabel, "Nothing to tag: you own none of the recommended items.");
 			return;
 		}
+		String tag = plugin.tagNameFor(currentPage.getPage(), setup);
+		for (TagStatus status : currentStatuses)
+		{
+			if (status.getTag().getTag().equals(tag) && status.isUserEdited())
+			{
+				int choice = JOptionPane.showConfirmDialog(this,
+					"You edited the tag '" + tag + "' yourself in Bank Tags.\nUpdating it replaces your edits with this result. Continue?",
+					"Overwrite your edits?", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+				if (choice != JOptionPane.YES_OPTION)
+				{
+					return;
+				}
+			}
+		}
 		createButton.setEnabled(false);
-		plugin.createTag(currentPage, setup, currentResult, tag ->
+		plugin.createTag(currentPage, setup, currentResult, created ->
 		{
 			createButton.setEnabled(true);
-			setWrapped(statusLabel, "Created tag tab '" + tag + "'. If the bank is open it shows the tag now; the tab itself appears next time the bank opens.");
+			setWrapped(statusLabel, "Created tag tab '" + created + "'. If the bank is open it shows the tag now; the tab itself appears next time the bank opens.");
 		});
 	}
 
@@ -512,6 +527,7 @@ public class GearBuilderPanel extends PluginPanel
 
 	public void setStatuses(List<TagStatus> statuses)
 	{
+		currentStatuses = statuses;
 		generatedPanel.removeAll();
 		if (statuses.isEmpty())
 		{
@@ -553,49 +569,31 @@ public class GearBuilderPanel extends PluginPanel
 		top.add(name, BorderLayout.CENTER);
 		row.add(top);
 
-		String stateText;
-		Color stateColor;
-		if (status.getLatest() == null)
-		{
-			stateText = "Open the bank to check for updates";
-			stateColor = MUTED;
-		}
-		else if (status.isUpdateAvailable())
-		{
-			stateText = "Update available";
-			stateColor = UPDATE_COLOR;
-		}
-		else
-		{
-			stateText = "Up to date";
-			stateColor = OK_COLOR;
-		}
 		if (status.isUserEdited())
 		{
-			stateText += " (edited by you)";
+			row.add(smallText("Edited by you in Bank Tags", UPDATE_COLOR));
 		}
-		row.add(smallText(stateText, stateColor));
-		for (String change : status.getChanges())
+		if (status.isUpdateAvailable())
 		{
-			row.add(smallText("  " + change, Color.WHITE));
+			row.add(smallText("Update available from your last build", UPDATE_COLOR));
+			for (String change : status.getChanges())
+			{
+				row.add(smallText("  " + change, Color.WHITE));
+			}
 		}
 
 		JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
 		buttons.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		if (status.getLatest() != null)
+		if (status.isUpdateAvailable())
 		{
-			// "Apply update" when picks changed; "Rebuild" otherwise, which rewrites the tag and
-			// its layout from the current picks (useful after a layout change)
-			JButton apply = smallButton(status.isUpdateAvailable() ? "Apply update" : "Rebuild");
-			apply.setToolTipText(status.isUpdateAvailable()
-				? "Rewrite the tag with the changes listed above"
-				: "Rewrite the tag and its layout from the current picks");
+			JButton apply = smallButton("Apply update");
+			apply.setToolTipText("Write the result of your last build to this tag");
 			apply.addActionListener(e ->
 			{
 				if (status.isUserEdited())
 				{
 					int choice = JOptionPane.showConfirmDialog(this,
-						"You edited the tag '" + g.getTag() + "' yourself.\nRewriting it replaces your edits with the plugin's picks. Continue?",
+						"You edited the tag '" + g.getTag() + "' yourself in Bank Tags.\nApplying replaces your edits with the built result. Continue?",
 						"Overwrite your edits?", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
 					if (choice != JOptionPane.YES_OPTION)
 					{

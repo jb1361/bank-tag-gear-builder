@@ -29,26 +29,6 @@ public interface BankTagGearBuilderConfig extends Config
 		}
 	}
 
-	enum UpdateMode
-	{
-		NOTIFY("Notify only"),
-		AUTO_UPDATE("Auto-update"),
-		OFF("Off");
-
-		private final String label;
-
-		UpdateMode(String label)
-		{
-			this.label = label;
-		}
-
-		@Override
-		public String toString()
-		{
-			return label;
-		}
-	}
-
 	enum TagNaming
 	{
 		CONTENT_AND_STYLE("Content + style"),
@@ -77,17 +57,6 @@ public interface BankTagGearBuilderConfig extends Config
 	default OutputMode outputMode()
 	{
 		return OutputMode.ASK;
-	}
-
-	@ConfigItem(
-		keyName = "updateMode",
-		name = "When bank changes",
-		description = "Auto-update rebuilds generated tags silently. Notify only marks them 'Update available' in the side panel.",
-		position = 2
-	)
-	default UpdateMode updateMode()
-	{
-		return UpdateMode.NOTIFY;
 	}
 
 	@ConfigItem(

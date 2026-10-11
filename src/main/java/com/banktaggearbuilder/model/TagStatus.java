@@ -4,17 +4,18 @@ import java.util.List;
 import lombok.Value;
 
 /**
- * The result of re-checking a generated tag against the current bank.
+ * A generated tag as listed in the panel, with the result of the last Build of its setup if
+ * that differs from what the tag holds.
  */
 @Value
 public class TagStatus
 {
 	GeneratedTag tag;
-	/** Latest match result, or null if the bank has not been seen yet this session. */
+	/** Result of the most recent Build for this tag's setup, or null if none this session. */
 	BuildResult latest;
 	/** True if the tag's items in Bank Tags differ from what this plugin last wrote. */
 	boolean userEdited;
-	/** Human readable before/after lines. Empty when the tag is current. */
+	/** Human readable before/after lines between the tag and {@link #latest}. Empty when none. */
 	List<String> changes;
 
 	public boolean isUpdateAvailable()

@@ -108,8 +108,8 @@ public class BankTagGearBuilderPlugin extends Plugin
 
 	/** Tags this plugin created. Only touched on the client thread after startUp. */
 	private final List<GeneratedTag> generated = new ArrayList<>();
-	/** The statuses last shown in the panel, by tag. What the player sees is what gets applied. */
-	private final Map<String, TagStatus> lastStatuses = new LinkedHashMap<>();
+	/** Result of the last Build per existing tag, waiting for the player to apply it. */
+	private final Map<String, BuildResult> pendingBuilds = new LinkedHashMap<>();
 
 	@Override
 	protected void startUp()
@@ -197,7 +197,6 @@ public class BankTagGearBuilderPlugin extends Plugin
 		if (event.getGroupId() == InterfaceID.BANKMAIN)
 		{
 			saveBankCache();
-			recheckAll();
 		}
 	}
 
@@ -287,14 +286,41 @@ public class BankTagGearBuilderPlugin extends Plugin
 		return client.getGameState() == GameState.LOGGED_IN;
 	}
 
-	public void build(GearSetup setup, Consumer<BuildResult> onResult)
+	public void build(ContentPage page, GearSetup setup, Consumer<BuildResult> onResult)
 	{
 		itemNameIndex.ensureBuilt(() ->
 		{
 			BuildResult result = matcher.match(setup, config.matchEquippedAndInventory(), config.includeInventory());
-			// Building is the moment the player expects everything to be current
+			// If this setup already has a tag, offer the built result as its pending update
+			String tag = tagNameFor(page, setup);
+			if (findGenerated(tag) != null)
+			{
+				pendingBuilds.put(tag, result);
+			}
 			recheckAll();
 			SwingUtilities.invokeLater(() -> onResult.accept(result));
+		});
+	}
+
+	/**
+	 * Writes the pending Build result for this tag. Nothing is re-scanned: the result the
+	 * player saw in the panel is exactly what gets applied.
+	 */
+	public void applyUpdate(String tag)
+	{
+		clientThread.invoke(() ->
+		{
+			GeneratedTag g = findGenerated(tag);
+			BuildResult result = pendingBuilds.get(tag);
+			if (g == null || result == null)
+			{
+				return;
+			}
+			List<String> changes = diff(g, result);
+			applyResult(g, result, g.getItemIds());
+			pendingBuilds.remove(tag);
+			chat("Updated tag tab '" + g.getTag() + "'" + (changes.isEmpty() ? "." : ": " + String.join("; ", changes)));
+			recheckAll();
 		});
 	}
 
@@ -335,58 +361,24 @@ public class BankTagGearBuilderPlugin extends Plugin
 			g.setRevId(page.getRevId());
 			g.setFetchedAt(page.getFetchedAt());
 			g.setSetup(setup);
+			List<String> changes = existing != null ? diff(existing, result) : Collections.emptyList();
 			applyResult(g, result, existing != null ? existing.getItemIds() : null);
+			pendingBuilds.remove(tag);
 			if (existing == null)
 			{
 				generated.add(g);
+				chat("Created tag tab '" + tag + "' with " + result.getTagItemIds().size() + " items."
+					+ (writer.isBankOpen() ? " It is open now; the tab appears in the strip next time you open the bank." : ""));
 			}
-			chat((existing == null ? "Created" : "Updated") + " tag tab '" + tag + "' with " + result.getTagItemIds().size() + " items."
-				+ (writer.isBankOpen() ? " It is open now; the tab appears in the strip next time you open the bank." : ""));
-			// The built result is the truth for this tag until the next Build; no re-scan
-			lastStatuses.put(tag, new TagStatus(g, result, false, Collections.emptyList()));
-			pushStatuses();
+			else
+			{
+				chat("Updated tag tab '" + tag + "'" + (changes.isEmpty() ? "." : ": " + String.join("; ", changes)));
+			}
+			recheckAll();
 			SwingUtilities.invokeLater(() -> onDone.accept(tag));
 		});
 	}
 
-	/**
-	 * Writes the result the panel is currently showing for this tag. No re-scan happens here:
-	 * the last Build is the source of truth, so what the player saw is what gets applied.
-	 */
-	public void applyUpdate(String tag)
-	{
-		clientThread.invoke(() ->
-		{
-			GeneratedTag g = findGenerated(tag);
-			if (g == null || !itemNameIndex.isReady())
-			{
-				return;
-			}
-			TagStatus shown = lastStatuses.get(tag);
-			BuildResult result = shown != null && shown.getLatest() != null
-				? shown.getLatest()
-				: matcher.match(g.getSetup(), config.matchEquippedAndInventory(), config.includeInventory());
-			List<String> changes = diff(g, result);
-			applyResult(g, result, g.getItemIds());
-			chat(changes.isEmpty()
-				? "Rebuilt tag '" + g.getTag() + "' with the current picks and layout."
-				: "Updated tag '" + g.getTag() + "': " + String.join("; ", changes));
-
-			// Reflect the applied result in the panel without re-scanning
-			lastStatuses.put(tag, new TagStatus(g, result, false, Collections.emptyList()));
-			pushStatuses();
-		});
-	}
-
-	private void pushStatuses()
-	{
-		List<TagStatus> statuses = new ArrayList<>(lastStatuses.values());
-		GearBuilderPanel p = panel;
-		if (p != null)
-		{
-			SwingUtilities.invokeLater(() -> p.setStatuses(statuses));
-		}
-	}
 
 	public void removeGenerated(String tag, boolean deleteBankTag)
 	{
@@ -403,6 +395,7 @@ public class BankTagGearBuilderPlugin extends Plugin
 			}
 			store.remove(g.getTag());
 			generated.remove(g);
+			pendingBuilds.remove(g.getTag());
 			recheckAll();
 		});
 	}
@@ -581,6 +574,11 @@ public class BankTagGearBuilderPlugin extends Plugin
 		}
 	}
 
+	/**
+	 * Refreshes the generated-tag list in the panel. Tags are never re-matched here: a tag only
+	 * changes through Build followed by "Update tag" or "Apply update", so the player's bank,
+	 * inventory and trades never alter a tab behind their back.
+	 */
 	private void recheckAll()
 	{
 		if (!ownedItems.isBankSeen() && !bankCacheChecked && client.getGameState() == GameState.LOGGED_IN && configManager.getRSProfileKey() != null)
@@ -593,49 +591,26 @@ public class BankTagGearBuilderPlugin extends Plugin
 		}
 
 		List<TagStatus> statuses = new ArrayList<>();
-		boolean canMatch = itemNameIndex.isReady() && ownedItems.isBankSeen() && client.getGameState() == GameState.LOGGED_IN;
-
 		for (GeneratedTag g : generated)
 		{
-			if (!canMatch)
-			{
-				statuses.add(new TagStatus(g, null, false, Collections.emptyList()));
-				continue;
-			}
-
-			BuildResult result = matcher.match(g.getSetup(), config.matchEquippedAndInventory(), config.includeInventory());
 			Set<Integer> current = new HashSet<>(writer.currentItems(g.getTag()));
 			boolean userEdited = !current.equals(new HashSet<>(g.getItemIds()));
-			List<String> changes = diff(g, result);
-
-			if (!changes.isEmpty())
+			BuildResult pending = pendingBuilds.get(g.getTag());
+			List<String> changes = pending != null ? diff(g, pending) : Collections.emptyList();
+			if (pending != null && changes.isEmpty())
 			{
-				switch (config.updateMode())
-				{
-					case AUTO_UPDATE:
-						if (!userEdited)
-						{
-							applyResult(g, result, g.getItemIds());
-							chat(g.getTag() + ": " + String.join("; ", changes));
-							changes = Collections.emptyList();
-						}
-						break;
-					case OFF:
-						changes = Collections.emptyList();
-						break;
-					default:
-						break;
-				}
+				// Built the same thing the tag already holds; nothing to offer
+				pendingBuilds.remove(g.getTag());
+				pending = null;
 			}
-			statuses.add(new TagStatus(g, result, userEdited, changes));
+			statuses.add(new TagStatus(g, pending, userEdited, changes));
 		}
 
-		lastStatuses.clear();
-		for (TagStatus s : statuses)
+		GearBuilderPanel p = panel;
+		if (p != null)
 		{
-			lastStatuses.put(s.getTag().getTag(), s);
+			SwingUtilities.invokeLater(() -> p.setStatuses(statuses));
 		}
-		pushStatuses();
 	}
 
 	private void chat(String message)

@@ -21,24 +21,22 @@ plugin builds a bank tag from the OSRS Wiki's recommended gear, using only items
 Slots where you own nothing on the list are left empty and the cheapest recommended item is shown
 as a suggestion. Each tag shows the source and the date it was pulled.
 
-## Keeping tags up to date
+## Updating a tag
 
-Generated tags are re-checked every time the bank is opened or closed.
+A tag only changes when you build it. Pick the same content and setup, press Build, check the
+result, then press "Update tag" under the result or "Apply update" on the tag's row, which
+appears when the build differs from what the tag holds. The result you see is exactly what is
+written. Nothing is re-scanned behind your back, so grabbing gear or trading never alters a tab.
 
-- **Notify only** (default): the panel marks the tag "Update available" with before/after lines
-  for each changed slot. Apply it with one click.
-- **Auto-update**: the tag is rebuilt and a chat message names what changed.
-- **Off**: nothing is checked.
-
-Tags you edited by hand in Bank Tags are never overwritten without asking. "Refresh all" re-fetches
-each tag's wiki page and flags tags whose page changed.
+The chat message names what changed (e.g. "Neck: Amulet of fury replaced Amulet of glory(6)").
+Tags you edited by hand in Bank Tags are flagged in the panel and the plugin asks before
+overwriting them. "Refresh all" re-fetches each tag's wiki page and flags tags whose page changed.
 
 ## Settings
 
 | Setting | Options | Default |
 | --- | --- | --- |
 | Output | Ask each time, Create tag automatically, Copy import string | Ask each time |
-| When bank changes | Notify only, Auto-update, Off | Notify only |
 | Include inventory items | On, Off | On |
 | Count equipped and inventory items | On, Off | On |
 | Tag naming | Content + style, Content name | Content + style |
