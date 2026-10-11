@@ -164,42 +164,86 @@ public class BankTagWriter
 	}
 
 	/**
-	 * Lays the tag out as a compact equipment-screen shape in the 8-wide bank grid:
+	 * Lays the tag out in the 8-wide bank grid, aiming for at most 9 rows and never more
+	 * than needed. Equipment blocks (3 wide, 5 tall, shaped like the worn screen) sit side by
+	 * side two per band, with two-handed, special attack and extra picks in the two columns
+	 * to their right. The inventory fills a 4-wide area and the rune pouch sits beside it with
+	 * its runes beneath it. With three styles the inventory and pouch go next to the third
+	 * block instead of below it. Anything that does not fit spills into rows below.
 	 * <pre>
-	 *   .  H  .   .  2h S1 S2 S3
-	 *   C  N  A   .  S4 S5 .  .
-	 *   W  B  Sh  .  .  .  .  .
-	 *   .  L  .   .  .  .  .  .
-	 *   G  F  R   .  .  .  .  .
+	 *   .  H  .  .  H  .  2h S1      one or two styles: inventory below
+	 *   C  N  A  C  N  A  S2 S3
+	 *   W  B  Sh W  B  Sh .  .
+	 *   .  L  .  .  L  .  .  .
+	 *   G  F  R  G  F  R  .  .
+	 *   I  I  I  I  .  P  .  .
+	 *   I  I  I  I  .  R  R  .
 	 * </pre>
-	 * followed by inventory items on the rows below.
 	 */
 	private static Layout buildLayout(String tag, BuildResult result)
 	{
 		final int w = BankTagsPlugin.BANK_ITEMS_PER_ROW;
-		Layout layout = new Layout(tag);
-		Set<Integer> placed = new HashSet<>();
+		Grid grid = new Grid(tag, w);
 
-		// One 5-row equipment block per style, stacked top to bottom. A single setup has one.
 		List<String> groups = result.getGroups();
 		if (groups.isEmpty())
 		{
 			groups = new ArrayList<>();
 			groups.add("");
 		}
-		for (int g = 0; g < groups.size(); g++)
+		int blocks = groups.size();
+		int bands = (blocks + 1) / 2;
+
+		// Reserve every block rectangle first so nothing else is packed into a block's gaps
+		for (int g = 0; g < blocks; g++)
 		{
-			placeEquipmentBlock(layout, result, groups.get(g), w * 5 * g, placed);
+			grid.reserveRect(blockRow(g), blockCol(g), 5, 3);
 		}
 
-		// Inventory below the equipment, 4 wide like the in-game inventory. If the setup has a
-		// rune pouch, the pouch sits to the right with its runes in a 2-wide block beneath it:
-		//   I I I I . P . .
-		//   I I I I . R R .
-		//   I I I I . R R .
-		final int invRow = 5 * groups.size();
-		final int invWidth = 4;
-		final int pouchCol = 5;
+		// Worn items into their block, everything else for the style into the band's spare columns
+		List<BuildResult.SlotPick> deferred = new ArrayList<>();
+		for (int g = 0; g < blocks; g++)
+		{
+			int row = blockRow(g);
+			int col = blockCol(g);
+			Set<EquipmentSlot> filled = new HashSet<>();
+			List<Integer> spare = grid.rect(row, 6, 5, 2);
+			for (BuildResult.SlotPick pick : result.getPicks())
+			{
+				if (!pick.getGroup().equals(groups.get(g)) || grid.has(pick.getItemId()))
+				{
+					continue;
+				}
+				int cell = filled.add(pick.getSlot()) ? equipmentCell(pick.getSlot(), w) : -1;
+				if (cell >= 0)
+				{
+					grid.put(pick.getItemId(), w * row + col + cell);
+				}
+				else if (!grid.putFirstFree(pick.getItemId(), spare))
+				{
+					deferred.add(pick);
+				}
+			}
+		}
+
+		// Inventory area and pouch strip depend on how many blocks there are
+		List<Integer> inventoryCells;
+		int pouchCell;
+		List<Integer> runeCells;
+		if (blocks == 3)
+		{
+			inventoryCells = grid.rect(5, 3, 5, 4);
+			pouchCell = w * 5 + 7;
+			runeCells = grid.rect(6, 7, 4, 1);
+		}
+		else
+		{
+			int top = 5 * bands;
+			inventoryCells = grid.rect(top, 0, 7, 4);
+			pouchCell = w * top + 5;
+			runeCells = grid.rect(top + 1, 5, 6, 2);
+		}
+
 		List<BuildResult.InventoryPick> runes = result.getRunePouch();
 		BuildResult.InventoryPick pouch = null;
 		if (!runes.isEmpty())
@@ -214,79 +258,58 @@ public class BankTagWriter
 			}
 		}
 
-		int i = 0;
+		List<BuildResult.InventoryPick> overflow = new ArrayList<>();
 		for (BuildResult.InventoryPick pick : result.getInventory())
 		{
-			if (pick == pouch || !placed.add(pick.getItemId()))
+			if (pick == pouch || grid.has(pick.getItemId()))
 			{
 				continue;
 			}
-			layout.setItemAtPos(pick.getItemId(), w * (invRow + i / invWidth) + i % invWidth);
-			i++;
+			if (!grid.putFirstFree(pick.getItemId(), inventoryCells))
+			{
+				overflow.add(pick);
+			}
 		}
-
-		if (pouch != null)
+		if (pouch != null && !grid.has(pouch.getItemId()))
 		{
-			layout.setItemAtPos(pouch.getItemId(), w * invRow + pouchCol);
-			placed.add(pouch.getItemId());
+			if (!grid.put(pouch.getItemId(), pouchCell))
+			{
+				overflow.add(pouch);
+			}
 		}
-		int r = 0;
 		for (BuildResult.InventoryPick rune : runes)
 		{
-			if (!placed.add(rune.getItemId()))
+			if (!grid.has(rune.getItemId()) && !grid.putFirstFree(rune.getItemId(), runeCells))
 			{
-				continue;
+				overflow.add(rune);
 			}
-			layout.setItemAtPos(rune.getItemId(), w * (invRow + 1 + r / 2) + pouchCol + r % 2);
-			r++;
 		}
-		return layout;
+
+		// Spill-over: deferred picks first, then inventory, into free cells below the used area
+		List<Integer> spill = grid.rect(grid.lastRow() + 1, 0, 8, w);
+		for (BuildResult.SlotPick pick : deferred)
+		{
+			grid.putFirstFree(pick.getItemId(), spill);
+		}
+		for (BuildResult.InventoryPick pick : overflow)
+		{
+			grid.putFirstFree(pick.getItemId(), spill);
+		}
+		return grid.toLayout();
 	}
 
-	/**
-	 * Places one style's equipment starting at {@code base} (the first cell of a row). The
-	 * worn slots form the 3-wide block; two-handed, special attack and any extra picks for an
-	 * already filled slot go in columns 4-7 of the same rows.
-	 */
-	private static void placeEquipmentBlock(Layout layout, BuildResult result, String group, int base, Set<Integer> placed)
+	/** Blocks go two per band: (0,0) (0,3) (5,0) (5,3) ... */
+	private static int blockRow(int block)
 	{
-		final int w = BankTagsPlugin.BANK_ITEMS_PER_ROW;
-		int[] extraCells = new int[5 * 4];
-		for (int row = 0, i = 0; row < 5; row++)
-		{
-			for (int col = 4; col < w; col++)
-			{
-				extraCells[i++] = base + w * row + col;
-			}
-		}
-		int extra = 0;
-		Set<EquipmentSlot> filled = new HashSet<>();
-
-		// Note: Layout.setItemAtPos takes (itemId, pos)
-		for (BuildResult.SlotPick pick : result.getPicks())
-		{
-			if (!pick.getGroup().equals(group) || !placed.add(pick.getItemId()))
-			{
-				continue;
-			}
-			int pos = filled.add(pick.getSlot()) ? equipmentCell(pick.getSlot(), w) : -1;
-			if (pos < 0)
-			{
-				if (extra >= extraCells.length)
-				{
-					continue;
-				}
-				pos = extraCells[extra++];
-			}
-			else
-			{
-				pos += base;
-			}
-			layout.setItemAtPos(pick.getItemId(), pos);
-		}
+		return 5 * (block / 2);
 	}
 
-	/** Grid cell for a worn slot, or -1 for slots that go in the spare columns. */
+	private static int blockCol(int block)
+	{
+		return 3 * (block % 2);
+	}
+
+	/** Cell offset within a 3-wide block for a worn slot, or -1 for slots that go in the spare columns. */
 	private static int equipmentCell(EquipmentSlot slot, int w)
 	{
 		switch (slot)
@@ -315,6 +338,88 @@ public class BankTagWriter
 				return w * 4 + 2;
 			default:
 				return -1;
+		}
+	}
+
+	/**
+	 * A sparse bank grid being filled: tracks which cells are taken or reserved and which
+	 * items are already placed. Note Layout.setItemAtPos takes (itemId, pos).
+	 */
+	private static class Grid
+	{
+		private final Layout layout;
+		private final int width;
+		private final Set<Integer> taken = new HashSet<>();
+		private final Set<Integer> reserved = new HashSet<>();
+		private final Set<Integer> items = new HashSet<>();
+		private int lastRow = -1;
+
+		Grid(String tag, int width)
+		{
+			this.layout = new Layout(tag);
+			this.width = width;
+		}
+
+		/** Cells of a rectangle, row by row. */
+		List<Integer> rect(int row, int col, int rows, int cols)
+		{
+			List<Integer> cells = new ArrayList<>(rows * cols);
+			for (int r = row; r < row + rows; r++)
+			{
+				for (int c = col; c < col + cols && c < width; c++)
+				{
+					cells.add(width * r + c);
+				}
+			}
+			return cells;
+		}
+
+		/** Keeps a rectangle free for one block's shape so packing never spills into its gaps. */
+		void reserveRect(int row, int col, int rows, int cols)
+		{
+			reserved.addAll(rect(row, col, rows, cols));
+		}
+
+		boolean has(int itemId)
+		{
+			return items.contains(itemId);
+		}
+
+		/** Places an item in a specific cell, which may be reserved for it. */
+		boolean put(int itemId, int pos)
+		{
+			if (taken.contains(pos))
+			{
+				return false;
+			}
+			layout.setItemAtPos(itemId, pos);
+			taken.add(pos);
+			items.add(itemId);
+			lastRow = Math.max(lastRow, pos / width);
+			return true;
+		}
+
+		/** Places an item in the first cell of {@code cells} that is neither taken nor reserved. */
+		boolean putFirstFree(int itemId, List<Integer> cells)
+		{
+			for (int pos : cells)
+			{
+				if (!taken.contains(pos) && !reserved.contains(pos))
+				{
+					return put(itemId, pos);
+				}
+			}
+			return false;
+		}
+
+		int lastRow()
+		{
+			return lastRow;
+		}
+
+		Layout toLayout()
+		{
+			return layout;
 		}
 	}
 
