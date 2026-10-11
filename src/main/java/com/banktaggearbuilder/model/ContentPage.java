@@ -9,8 +9,22 @@ import lombok.Value;
 public class ContentPage
 {
 	String title;
+	/** Name shown in the picker; null means derive it from the title. */
+	String displayOverride;
 
-	public String getDisplayName()
+	public ContentPage(String title)
+	{
+		this(title, null);
+	}
+
+	public ContentPage(String title, String displayOverride)
+	{
+		this.title = title;
+		this.displayOverride = displayOverride;
+	}
+
+	/** The short name derived from the title: "Vorkath/Strategies" becomes "Vorkath". */
+	public static String shortName(String title)
 	{
 		String name = title;
 		if (name.endsWith("/Strategies"))
@@ -24,6 +38,11 @@ public class ContentPage
 			name = name.substring(slash + 1) + " (" + name.substring(0, slash) + ")";
 		}
 		return name;
+	}
+
+	public String getDisplayName()
+	{
+		return displayOverride != null ? displayOverride : shortName(title);
 	}
 
 	@Override

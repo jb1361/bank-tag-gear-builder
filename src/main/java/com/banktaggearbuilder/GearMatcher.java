@@ -121,9 +121,55 @@ public class GearMatcher
 			{
 				addRune(names.get(0), includeInventoryAndEquipment, result);
 			}
+
+			mergeCombinationRunes(result.getRunePouch(), includeInventoryAndEquipment);
+			mergeCombinationRunes(result.getInventory(), includeInventoryAndEquipment);
 		}
 
 		return result;
+	}
+
+	/**
+	 * Where a list holds both elemental runes of a combination rune the player owns (fire and
+	 * water with steam runes in the bank), the combination rune replaces the pair.
+	 */
+	private void mergeCombinationRunes(List<BuildResult.InventoryPick> picks, boolean includeInvEquip)
+	{
+		for (Map.Entry<String, String[]> e : COMBINATION_RUNES.entrySet())
+		{
+			BuildResult.InventoryPick first = findByName(picks, e.getValue()[0]);
+			BuildResult.InventoryPick second = findByName(picks, e.getValue()[1]);
+			if (first == null || second == null)
+			{
+				continue;
+			}
+			List<Integer> ids = index.lookup(e.getKey());
+			if (ids.isEmpty())
+			{
+				continue;
+			}
+			int combo = OwnedItems.canonical(itemManager, ids.get(0));
+			if (!owned.owns(combo, includeInvEquip))
+			{
+				continue;
+			}
+			int at = picks.indexOf(first);
+			picks.remove(first);
+			picks.remove(second);
+			picks.add(Math.min(at, picks.size()), new BuildResult.InventoryPick(itemManager.getItemComposition(combo).getName(), combo, false));
+		}
+	}
+
+	private static BuildResult.InventoryPick findByName(List<BuildResult.InventoryPick> picks, String name)
+	{
+		for (BuildResult.InventoryPick pick : picks)
+		{
+			if (pick.getName().equalsIgnoreCase(name))
+			{
+				return pick;
+			}
+		}
+		return null;
 	}
 
 	private void matchEquipment(GearSetup setup, String group, boolean includeInvEquip, BuildResult result)

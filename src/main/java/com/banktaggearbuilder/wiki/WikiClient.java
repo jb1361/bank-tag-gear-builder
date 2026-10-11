@@ -10,7 +10,9 @@ import com.google.gson.JsonObject;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -79,9 +81,36 @@ public class WikiClient
 				listContentPage(cont.get("eicontinue").getAsString(), acc, onSuccess, onError);
 				return;
 			}
-			acc.sort(Comparator.comparing(p -> p.getDisplayName().toLowerCase()));
-			onSuccess.accept(acc);
+			List<ContentPage> result = disambiguate(acc);
+			result.sort(Comparator.comparing(p -> p.getDisplayName().toLowerCase()));
+			onSuccess.accept(result);
 		});
+	}
+
+	/**
+	 * Pages whose short names collide ("Chambers of Xeric/Challenge Mode" and
+	 * "Chambers of Xeric/Challenge Mode/Strategies") are shown with their full page path.
+	 */
+	private static List<ContentPage> disambiguate(List<ContentPage> pages)
+	{
+		Map<String, Integer> counts = new HashMap<>();
+		for (ContentPage p : pages)
+		{
+			counts.merge(p.getDisplayName(), 1, Integer::sum);
+		}
+		List<ContentPage> out = new ArrayList<>(pages.size());
+		for (ContentPage p : pages)
+		{
+			if (counts.get(p.getDisplayName()) > 1)
+			{
+				out.add(new ContentPage(p.getTitle(), p.getTitle().replace("/", " / ")));
+			}
+			else
+			{
+				out.add(p);
+			}
+		}
+		return out;
 	}
 
 	/**
