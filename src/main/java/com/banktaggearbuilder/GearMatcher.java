@@ -5,6 +5,7 @@ import com.banktaggearbuilder.model.EquipmentSlot;
 import com.banktaggearbuilder.model.GearSetup;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import net.runelite.client.game.ItemManager;
@@ -16,6 +17,9 @@ import net.runelite.client.game.ItemManager;
 @Singleton
 public class GearMatcher
 {
+	/** Trailing dose marker on potion names, e.g. "Prayer potion(3)" or "Super restore (4)". */
+	private static final Pattern POTION_DOSE = Pattern.compile("\\s?\\([1-4]\\)$");
+
 	private final ItemManager itemManager;
 	private final ItemNameIndex index;
 	private final OwnedItems owned;
@@ -46,6 +50,11 @@ public class GearMatcher
 		{
 			for (List<String> names : setup.getInventory())
 			{
+				if (isPotion(names.get(0)))
+				{
+					addPotion(names.get(0), result);
+					continue;
+				}
 				int id = firstOwned(names, includeInventoryAndEquipment, result);
 				if (id >= 0)
 				{
@@ -59,6 +68,31 @@ public class GearMatcher
 		}
 
 		return result;
+	}
+
+	private static boolean isPotion(String name)
+	{
+		return POTION_DOSE.matcher(name).find();
+	}
+
+	/**
+	 * Potions are always tagged as their 4-dose variant, owned or not. Variation tagging makes
+	 * every dose in the bank match, and the player can restock without rebuilding the tag.
+	 */
+	private void addPotion(String name, BuildResult result)
+	{
+		String fourDose = POTION_DOSE.matcher(name).replaceFirst("(4)");
+		List<Integer> ids = index.lookup(fourDose);
+		if (ids.isEmpty())
+		{
+			ids = index.lookup(name);
+		}
+		if (ids.isEmpty())
+		{
+			result.getUnresolvedNames().add(name);
+			return;
+		}
+		result.getInventory().add(new BuildResult.InventoryPick(fourDose, OwnedItems.canonical(itemManager, ids.get(0))));
 	}
 
 	private void matchSlot(EquipmentSlot slot, List<List<List<String>>> ranks, boolean includeInvEquip, BuildResult result)

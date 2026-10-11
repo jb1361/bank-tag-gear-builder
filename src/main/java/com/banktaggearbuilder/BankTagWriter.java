@@ -1,6 +1,7 @@
 package com.banktaggearbuilder;
 
 import com.banktaggearbuilder.model.BuildResult;
+import com.banktaggearbuilder.model.EquipmentSlot;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -88,25 +89,46 @@ public class BankTagWriter
 	}
 
 	/**
-	 * Equipment on the first rows in slot order, inventory items starting on a fresh row.
+	 * Lays the tag out like the equipment screen in the 8-wide bank grid:
+	 * <pre>
+	 *   . . . H . . 2h S1
+	 *   . . C N A . S2 S3
+	 *   . W . B . Sh S4 S5
+	 *   . . . L . . .  .
+	 *   . G . F . R .  .
+	 * </pre>
+	 * followed by inventory items on the rows below.
 	 */
 	private static Layout buildLayout(String tag, BuildResult result)
 	{
+		final int w = BankTagsPlugin.BANK_ITEMS_PER_ROW;
 		Layout layout = new Layout(tag);
 		Set<Integer> placed = new HashSet<>();
-		int pos = 0;
+
+		// Right-hand columns hold two-handed and special attack weapons, filled top to bottom
+		int[] extraCells = {w * 0 + 6, w * 0 + 7, w * 1 + 6, w * 1 + 7, w * 2 + 6, w * 2 + 7, w * 3 + 6, w * 3 + 7, w * 4 + 6, w * 4 + 7};
+		int extra = 0;
+
 		// Note: Layout.setItemAtPos takes (itemId, pos)
 		for (BuildResult.SlotPick pick : result.getPicks())
 		{
-			if (placed.add(pick.getItemId()))
+			if (!placed.add(pick.getItemId()))
 			{
-				layout.setItemAtPos(pick.getItemId(), pos++);
+				continue;
 			}
+			int pos = equipmentCell(pick.getSlot(), w);
+			if (pos < 0)
+			{
+				if (extra >= extraCells.length)
+				{
+					continue;
+				}
+				pos = extraCells[extra++];
+			}
+			layout.setItemAtPos(pick.getItemId(), pos);
 		}
-		if (pos % BankTagsPlugin.BANK_ITEMS_PER_ROW != 0)
-		{
-			pos += BankTagsPlugin.BANK_ITEMS_PER_ROW - (pos % BankTagsPlugin.BANK_ITEMS_PER_ROW);
-		}
+
+		int pos = w * 5;
 		for (BuildResult.InventoryPick pick : result.getInventory())
 		{
 			if (placed.add(pick.getItemId()))
@@ -115,6 +137,38 @@ public class BankTagWriter
 			}
 		}
 		return layout;
+	}
+
+	/** Grid cell for a worn slot, or -1 for slots that go in the spare columns. */
+	private static int equipmentCell(EquipmentSlot slot, int w)
+	{
+		switch (slot)
+		{
+			case HEAD:
+				return w * 0 + 3;
+			case CAPE:
+				return w * 1 + 2;
+			case NECK:
+				return w * 1 + 3;
+			case AMMO:
+				return w * 1 + 4;
+			case WEAPON:
+				return w * 2 + 1;
+			case BODY:
+				return w * 2 + 3;
+			case SHIELD:
+				return w * 2 + 5;
+			case LEGS:
+				return w * 3 + 3;
+			case HANDS:
+				return w * 4 + 1;
+			case FEET:
+				return w * 4 + 3;
+			case RING:
+				return w * 4 + 5;
+			default:
+				return -1;
+		}
 	}
 
 	/**

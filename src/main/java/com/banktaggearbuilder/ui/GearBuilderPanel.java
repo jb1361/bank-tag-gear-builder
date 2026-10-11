@@ -33,6 +33,7 @@ import javax.swing.DefaultListCellRenderer;
 import javax.swing.DefaultListModel;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
+import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JOptionPane;
@@ -202,9 +203,28 @@ public class GearBuilderPanel extends PluginPanel
 		generatedPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		container.add(generatedPanel);
 
+		leftAlign(container);
 		add(container, BorderLayout.NORTH);
 		onConfigChanged();
 		updateStatusLabel();
+	}
+
+	/**
+	 * BoxLayout positions each child by its own alignment hint, and buttons, combo boxes and
+	 * panels default to centred, which reads as right-aligned next to left-aligned labels.
+	 * Pin every child to the left edge and let it use the full panel width.
+	 */
+	private static void leftAlign(JPanel vertical)
+	{
+		for (Component c : vertical.getComponents())
+		{
+			if (c instanceof JComponent)
+			{
+				JComponent jc = (JComponent) c;
+				jc.setAlignmentX(Component.LEFT_ALIGNMENT);
+				jc.setMaximumSize(new Dimension(Integer.MAX_VALUE, jc.getMaximumSize().height));
+			}
+		}
 	}
 
 	@Override
@@ -438,6 +458,7 @@ public class GearBuilderPanel extends PluginPanel
 		}
 
 		actionRow.setVisible(true);
+		leftAlign(resultPanel);
 		resultPanel.revalidate();
 		resultPanel.repaint();
 	}
@@ -454,6 +475,7 @@ public class GearBuilderPanel extends PluginPanel
 			generatedPanel.add(statusRow(status));
 			generatedPanel.add(Box.createVerticalStrut(4));
 		}
+		leftAlign(generatedPanel);
 		generatedPanel.revalidate();
 		generatedPanel.repaint();
 		updateStatusLabel();
@@ -553,6 +575,7 @@ public class GearBuilderPanel extends PluginPanel
 		});
 		buttons.add(remove);
 		row.add(buttons);
+		leftAlign(row);
 		return row;
 	}
 

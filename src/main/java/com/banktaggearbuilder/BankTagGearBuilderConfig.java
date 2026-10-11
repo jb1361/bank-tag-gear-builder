@@ -126,7 +126,7 @@ public interface BankTagGearBuilderConfig extends Config
 	@ConfigItem(
 		keyName = "arrangeBySlot",
 		name = "Arrange items by slot",
-		description = "Give created tags a layout: equipment in slot order first, inventory items on the rows below",
+		description = "Give created tags a Bank Tags layout shaped like the equipment screen, with special attack weapons beside it and inventory items on the rows below",
 		position = 6
 	)
 	default boolean arrangeBySlot()

@@ -76,6 +76,11 @@ public class OwnedItems
 			{
 				continue;
 			}
+			// Bank placeholders stand in for items the player no longer has
+			if (itemManager.getItemComposition(item.getId()).getPlaceholderTemplateId() != -1)
+			{
+				continue;
+			}
 			target.merge(canonical(itemManager, item.getId()), item.getQuantity(), Integer::sum);
 		}
 		return true;

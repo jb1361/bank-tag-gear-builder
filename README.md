@@ -14,8 +14,9 @@ plugin builds a bank tag from the OSRS Wiki's recommended gear, using only items
    attack weapons) are included where the wiki lists them.
 4. **Output.** Either create the tag directly in Bank Tags, named after the content
    (e.g. `vorkath - ranged (crossbow)`) with the best weapon as its icon, or copy a standard Bank
-   Tags import string to review, edit or share. Created tags can be laid out in equipment-slot
-   order with inventory items on the rows below.
+   Tags import string to review, edit or share. Created tags get a Bank Tags layout shaped like
+   the equipment screen, with two-handed and special attack weapons in the spare columns and
+   inventory items on the rows below.
 
 Slots where you own nothing on the list are left empty and the cheapest recommended item is shown
 as a suggestion. Each tag shows the source and the date it was pulled.
@@ -45,6 +46,9 @@ each tag's wiki page and flags tags whose page changed.
 
 ## Notes
 
+- Potions are always tagged as their 4-dose variant whether or not you own them, so you can
+  restock without rebuilding the tag. Every dose in the bank matches the tag.
+- Bank placeholders are not counted as owned.
 - Gear data comes only from the OSRS Wiki. The plugin resolves item names to item ids locally
   from the game cache, so no other services are contacted.
 - The plugin cannot tell whether you meet an item's level or quest requirements. Items you own but
