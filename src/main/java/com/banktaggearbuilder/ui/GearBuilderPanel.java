@@ -60,6 +60,8 @@ public class GearBuilderPanel extends PluginPanel
 	private final ItemManager itemManager;
 	private final BankTagGearBuilderConfig config;
 
+	private final JPanel banner = new JPanel(new BorderLayout());
+	private final JLabel bannerLabel = new JLabel();
 	private final JLabel statusLabel = new JLabel();
 	private final IconTextField searchField = new IconTextField();
 	private final DefaultListModel<ContentPage> listModel = new DefaultListModel<>();
@@ -98,7 +100,17 @@ public class GearBuilderPanel extends PluginPanel
 		title.setFont(FontManager.getRunescapeBoldFont());
 		title.setForeground(Color.WHITE);
 		container.add(title);
-		container.add(Box.createVerticalStrut(4));
+		container.add(Box.createVerticalStrut(6));
+
+		// Large warning shown until the plugin has seen the bank. Nothing can be matched before then.
+		banner.setBackground(ColorScheme.BRAND_ORANGE);
+		banner.setBorder(new EmptyBorder(10, 10, 10, 10));
+		bannerLabel.setFont(FontManager.getRunescapeBoldFont());
+		bannerLabel.setForeground(Color.BLACK);
+		banner.add(bannerLabel, BorderLayout.CENTER);
+		banner.setVisible(false);
+		container.add(banner);
+		container.add(Box.createVerticalStrut(6));
 
 		statusLabel.setFont(FontManager.getRunescapeSmallFont());
 		statusLabel.setForeground(MUTED);
@@ -269,16 +281,26 @@ public class GearBuilderPanel extends PluginPanel
 	{
 		if (!plugin.isLoggedIn())
 		{
-			setWrapped(statusLabel, "Log in to match gear against your bank.");
+			showBanner("LOG IN FIRST. Gear is matched against your bank, so the plugin needs you logged in.");
 		}
 		else if (!plugin.isBankSeen())
 		{
-			setWrapped(statusLabel, "Open your bank once so the plugin can see what you own.");
+			showBanner("OPEN YOUR BANK ONCE. The plugin only knows what you own after it has seen your bank this session. Builds and update checks wait until then.");
 		}
 		else
 		{
+			banner.setVisible(false);
 			setWrapped(statusLabel, "Source: OSRS Wiki. Bank seen this session.");
 		}
+		revalidate();
+		repaint();
+	}
+
+	private void showBanner(String text)
+	{
+		setWrapped(bannerLabel, text);
+		banner.setVisible(true);
+		setWrapped(statusLabel, "");
 	}
 
 	private void filterContent()
@@ -349,14 +371,10 @@ public class GearBuilderPanel extends PluginPanel
 		{
 			return;
 		}
-		if (!plugin.isLoggedIn())
+		if (!plugin.isLoggedIn() || !plugin.isBankSeen())
 		{
-			setWrapped(statusLabel, "Log in first so the plugin can read your bank.");
-			return;
-		}
-		if (!plugin.isBankSeen())
-		{
-			setWrapped(statusLabel, "Open your bank once first. Items are matched against the bank contents.");
+			// The banner already says what to do; make sure it is showing
+			updateStatusLabel();
 			return;
 		}
 		buildButton.setEnabled(false);
