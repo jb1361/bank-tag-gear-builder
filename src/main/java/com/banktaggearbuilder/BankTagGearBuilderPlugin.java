@@ -157,6 +157,7 @@ public class BankTagGearBuilderPlugin extends Plugin
 		navButton = null;
 		panel = null;
 		ownedItems.clear();
+		pendingBuilds.clear();
 	}
 
 	@Provides

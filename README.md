@@ -41,6 +41,7 @@ overwriting them. "Refresh all" re-fetches each tag's wiki page and flags tags w
 | Count equipped and inventory items | On, Off | On |
 | Tag naming | Content + style, Content name | Content + style |
 | Arrange items by slot | On, Off | On |
+| Sync from wiki now | Tick to run; unticks itself | Off |
 
 ## Notes
 
@@ -48,6 +49,10 @@ overwriting them. "Refresh all" re-fetches each tag's wiki page and flags tags w
   restock without rebuilding the tag.
 - Charged items with numbered variants (Amulet of glory, Ring of dueling, Combat bracelet and so
   on) are tagged as exactly the highest-charge one you own, so the tab shows one of them.
+- When you own several versions of one item, only the best one is tagged so the tab doesn't
+  show duplicates: uncharged or broken copies lose to charged ones (Dizana's quiver), fortified
+  `(f)` armour wins (Masori), and degraded gear prefers the most charge left. Locked `(l)` copies
+  count the same as the plain item. Owning just one version tags all of its variants as before.
 - Runes the wiki puts in the rune pouch are always included and kept on their own row below the
   inventory. A combination rune you don't own is replaced by its two elemental runes. Runes the
   wiki lists directly in the inventory stay with the inventory items.
@@ -55,8 +60,11 @@ overwriting them. "Refresh all" re-fetches each tag's wiki page and flags tags w
 - Your bank contents are cached per account whenever the bank is opened or closed, so after the
   first session the plugin works straight away at login. Open the bank to refresh the cache.
 - Wiki responses are cached on disk in the plugin's folder, keyed by the game cache revision.
-  The wiki is only asked again after a game update, for a page not fetched before, or when
-  you press "Refresh all".
+  The wiki is only asked again after a game update, for a page not fetched before, when you
+  press "Refresh all", or when you tick "Sync from wiki now" in the plugin settings, which
+  marks every cached page as stale.
+- Where a page and its "/Strategies" subpage would both be listed under the same name, only
+  the main page is shown.
 - Gear data comes only from the OSRS Wiki. The plugin resolves item names to item ids locally
   from the game cache, so no other services are contacted.
 - The plugin cannot tell whether you meet an item's level or quest requirements. Items you own but
@@ -77,3 +85,7 @@ If you log in with a Jagex account, follow the
 ## License
 
 [BSD 2-Clause](LICENSE)
+
+Gear data comes from the [Old School RuneScape Wiki](https://oldschool.runescape.wiki), whose
+content is licensed under [CC BY-NC-SA 3.0](https://creativecommons.org/licenses/by-nc-sa/3.0/).
+The wikitext test fixtures in `src/test/resources` are copies of wiki pages under that licence.
