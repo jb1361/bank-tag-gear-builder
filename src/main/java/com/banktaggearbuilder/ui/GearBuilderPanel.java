@@ -61,6 +61,8 @@ public class GearBuilderPanel extends PluginPanel
 	private final BankTagGearBuilderConfig config;
 
 	private final JPanel banner = new JPanel(new BorderLayout());
+	/** Everything below the banner; hidden until the bank has been seen. */
+	private final JPanel body = new JPanel();
 	private final JLabel bannerLabel = new JLabel();
 	private final JLabel statusLabel = new JLabel();
 	private final IconTextField searchField = new IconTextField();
@@ -117,7 +119,10 @@ public class GearBuilderPanel extends PluginPanel
 		container.add(statusLabel);
 		container.add(Box.createVerticalStrut(8));
 
-		container.add(header("1. Pick content"));
+		body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
+		body.setBackground(ColorScheme.DARK_GRAY_COLOR);
+
+		body.add(header("1. Pick content"));
 		searchField.setIcon(IconTextField.Icon.SEARCH);
 		searchField.setPreferredSize(new Dimension(PANEL_WIDTH - 20, 30));
 		searchField.setBackground(ColorScheme.DARKER_GRAY_COLOR);
@@ -130,8 +135,8 @@ public class GearBuilderPanel extends PluginPanel
 			}
 		});
 		searchField.addClearListener(this::filterContent);
-		container.add(searchField);
-		container.add(Box.createVerticalStrut(4));
+		body.add(searchField);
+		body.add(Box.createVerticalStrut(4));
 
 		contentList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
 		contentList.setBackground(ColorScheme.DARKER_GRAY_COLOR);
@@ -146,10 +151,10 @@ public class GearBuilderPanel extends PluginPanel
 		JScrollPane listScroll = new JScrollPane(contentList);
 		listScroll.setPreferredSize(new Dimension(PANEL_WIDTH - 20, 160));
 		listScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, 160));
-		container.add(listScroll);
-		container.add(Box.createVerticalStrut(8));
+		body.add(listScroll);
+		body.add(Box.createVerticalStrut(8));
 
-		container.add(header("2. Choose setup"));
+		body.add(header("2. Choose setup"));
 		setupCombo.setRenderer(new DefaultListCellRenderer()
 		{
 			@Override
@@ -165,24 +170,24 @@ public class GearBuilderPanel extends PluginPanel
 			}
 		});
 		setupCombo.setEnabled(false);
-		container.add(setupCombo);
-		container.add(Box.createVerticalStrut(4));
+		body.add(setupCombo);
+		body.add(Box.createVerticalStrut(4));
 
 		sourceLabel.setFont(FontManager.getRunescapeSmallFont());
 		sourceLabel.setForeground(MUTED);
 		setWrapped(sourceLabel, "Select content above");
-		container.add(sourceLabel);
-		container.add(Box.createVerticalStrut(4));
+		body.add(sourceLabel);
+		body.add(Box.createVerticalStrut(4));
 
 		buildButton.setEnabled(false);
 		buildButton.addActionListener(e -> build());
-		container.add(buildButton);
-		container.add(Box.createVerticalStrut(8));
+		body.add(buildButton);
+		body.add(Box.createVerticalStrut(8));
 
-		container.add(header("3. Result"));
+		body.add(header("3. Result"));
 		resultPanel.setLayout(new BoxLayout(resultPanel, BoxLayout.Y_AXIS));
 		resultPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		container.add(resultPanel);
+		body.add(resultPanel);
 
 		createButton.addActionListener(e -> doCreate());
 		copyButton.addActionListener(e -> doCopy());
@@ -190,8 +195,8 @@ public class GearBuilderPanel extends PluginPanel
 		actionRow.add(createButton);
 		actionRow.add(copyButton);
 		actionRow.setVisible(false);
-		container.add(actionRow);
-		container.add(Box.createVerticalStrut(12));
+		body.add(actionRow);
+		body.add(Box.createVerticalStrut(12));
 
 		JPanel genHeader = new JPanel(new BorderLayout());
 		genHeader.setBackground(ColorScheme.DARK_GRAY_COLOR);
@@ -208,12 +213,15 @@ public class GearBuilderPanel extends PluginPanel
 			});
 		});
 		genHeader.add(refreshButton, BorderLayout.EAST);
-		container.add(genHeader);
-		container.add(Box.createVerticalStrut(4));
+		body.add(genHeader);
+		body.add(Box.createVerticalStrut(4));
 
 		generatedPanel.setLayout(new BoxLayout(generatedPanel, BoxLayout.Y_AXIS));
 		generatedPanel.setBackground(ColorScheme.DARK_GRAY_COLOR);
-		container.add(generatedPanel);
+		body.add(generatedPanel);
+
+		leftAlign(body);
+		container.add(body);
 
 		leftAlign(container);
 		add(container, BorderLayout.NORTH);
@@ -290,6 +298,7 @@ public class GearBuilderPanel extends PluginPanel
 		else
 		{
 			banner.setVisible(false);
+			body.setVisible(true);
 			setWrapped(statusLabel, "Source: OSRS Wiki. Bank seen this session.");
 		}
 		revalidate();
@@ -300,6 +309,7 @@ public class GearBuilderPanel extends PluginPanel
 	{
 		setWrapped(bannerLabel, text);
 		banner.setVisible(true);
+		body.setVisible(false);
 		setWrapped(statusLabel, "");
 	}
 
