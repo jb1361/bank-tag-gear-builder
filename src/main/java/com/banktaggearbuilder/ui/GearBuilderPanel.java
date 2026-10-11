@@ -79,6 +79,7 @@ public class GearBuilderPanel extends PluginPanel
 	private final JPanel resultPanel = new JPanel();
 	private final JPanel generatedPanel = new JPanel();
 	private final JButton refreshButton = new JButton("Refresh all");
+	private final JButton syncButton = new JButton("Sync from wiki");
 
 	private List<ContentPage> allContent = new ArrayList<>();
 	private boolean contentLoading;
@@ -127,7 +128,16 @@ public class GearBuilderPanel extends PluginPanel
 		body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
 		body.setBackground(ColorScheme.DARK_GRAY_COLOR);
 
-		body.add(header("1. Pick content"));
+		JPanel contentHeader = new JPanel(new BorderLayout());
+		contentHeader.setBackground(ColorScheme.DARK_GRAY_COLOR);
+		contentHeader.add(header("1. Pick content"), BorderLayout.WEST);
+		syncButton.setFont(FontManager.getRunescapeSmallFont());
+		syncButton.setToolTipText("Download this page from the OSRS Wiki again instead of using the saved copy");
+		syncButton.addActionListener(e -> confirmSync());
+		// Shown once content is picked, since it syncs only that page
+		syncButton.setVisible(false);
+		contentHeader.add(syncButton, BorderLayout.EAST);
+		body.add(contentHeader);
 		searchField.setIcon(IconTextField.Icon.SEARCH);
 		searchField.setPreferredSize(new Dimension(PANEL_WIDTH - 20, 30));
 		searchField.setBackground(ColorScheme.DARKER_GRAY_COLOR);
@@ -281,32 +291,6 @@ public class GearBuilderPanel extends PluginPanel
 		}
 	}
 
-	/**
-	 * Loads the content list again after a forced wiki sync. The selected page, if still
-	 * listed, is reselected, which fetches it again too.
-	 */
-	public void reloadFromWiki()
-	{
-		if (contentLoading)
-		{
-			return;
-		}
-		contentLoading = true;
-		selectedContent = null;
-		setWrapped(statusLabel, "Syncing with the OSRS Wiki...");
-		plugin.loadContent(pages ->
-		{
-			contentLoading = false;
-			allContent = pages;
-			filterContent();
-			updateStatusLabel();
-		}, err ->
-		{
-			contentLoading = false;
-			setWrapped(statusLabel, err);
-		});
-	}
-
 	public void onConfigChanged()
 	{
 		switch (config.outputMode())
@@ -384,14 +368,43 @@ public class GearBuilderPanel extends PluginPanel
 			return;
 		}
 		selectedContent = page;
+		syncButton.setVisible(true);
+		loadPage(page, false);
+	}
+
+	private void confirmSync()
+	{
+		ContentPage page = selectedContent;
+		if (page == null)
+		{
+			return;
+		}
+		int choice = JOptionPane.showConfirmDialog(this,
+			"Download " + page.getDisplayName() + " from the OSRS Wiki again?" + System.lineSeparator()
+				+ "The saved copy is replaced with the current wiki page.",
+			"Sync from wiki", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+		if (choice == JOptionPane.YES_OPTION)
+		{
+			loadPage(page, true);
+		}
+	}
+
+	/**
+	 * Fetches a page's setups and fills the setup picker.
+	 *
+	 * @param force skip the saved copy and download the page from the wiki
+	 */
+	private void loadPage(ContentPage page, boolean force)
+	{
 		currentPage = null;
 		clearResult();
 		setupCombo.setModel(new DefaultComboBoxModel<>());
 		setupCombo.setEnabled(false);
 		buildButton.setEnabled(false);
-		setWrapped(sourceLabel, "Fetching " + page.getDisplayName() + "...");
+		syncButton.setEnabled(false);
+		setWrapped(sourceLabel, (force ? "Syncing " : "Fetching ") + page.getDisplayName() + "...");
 
-		plugin.fetchStrategy(page, sp ->
+		plugin.fetchStrategy(page, force, sp ->
 		{
 			if (contentList.getSelectedValue() == null || !contentList.getSelectedValue().equals(page))
 			{
@@ -406,8 +419,16 @@ public class GearBuilderPanel extends PluginPanel
 			setupCombo.setModel(model);
 			setupCombo.setEnabled(true);
 			buildButton.setEnabled(true);
+			syncButton.setEnabled(true);
 			setWrapped(sourceLabel, "Source: OSRS Wiki, pulled " + formatDate(sp.getFetchedAt()) + ". " + sp.getSetups().size() + " setup(s).");
-		}, err -> setWrapped(sourceLabel, err));
+		}, err ->
+		{
+			if (page.equals(selectedContent))
+			{
+				syncButton.setEnabled(true);
+				setWrapped(sourceLabel, err);
+			}
+		});
 	}
 
 	private GearSetup selectedSetup()

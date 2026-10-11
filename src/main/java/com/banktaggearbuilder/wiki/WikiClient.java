@@ -53,7 +53,6 @@ public class WikiClient
 	private static class CachedContent
 	{
 		private int revision;
-		private long fetchedAt;
 		private List<String> titles = new ArrayList<>();
 	}
 
@@ -77,7 +76,6 @@ public class WikiClient
 
 	/** Directory for the cache, or null when none is available (then every call goes to the wiki). */
 	private volatile Filepath cacheDir;
-	private volatile long syncedAt;
 
 	@Inject
 	private WikiClient(OkHttpClient okHttpClient, Gson gson, Client client, ScheduledExecutorService executor)
@@ -114,7 +112,7 @@ public class WikiClient
 			if (!force && file != null)
 			{
 				CachedContent cached = readJson(file, CachedContent.class);
-				if (cached != null && isCurrent(cached.getRevision(), cached.getFetchedAt()))
+				if (cached != null && isCurrent(cached.getRevision()))
 				{
 					List<ContentPage> pages = new ArrayList<>();
 					for (String title : cached.getTitles())
@@ -134,7 +132,6 @@ public class WikiClient
 				{
 					CachedContent cached = new CachedContent();
 					cached.setRevision(gameRevision());
-					cached.setFetchedAt(System.currentTimeMillis());
 					for (ContentPage p : pages)
 					{
 						cached.getTitles().add(p.getTitle());
@@ -272,7 +269,7 @@ public class WikiClient
 			if (!force && file != null)
 			{
 				CachedPage cached = readJson(file, CachedPage.class);
-				if (cached != null && isCurrent(cached.getRevision(), cached.getFetchedAt()) && cached.getSetups() != null && !cached.getSetups().isEmpty())
+				if (cached != null && isCurrent(cached.getRevision()) && cached.getSetups() != null && !cached.getSetups().isEmpty())
 				{
 					log.debug("{} served from cache (revision {})", page.getTitle(), cached.getRevision());
 					onSuccess.accept(new StrategyPage(page, cached.getRevId(), cached.getFetchedAt(), cached.getSetups()));
@@ -329,25 +326,9 @@ public class WikiClient
 
 	// ---- Cache files ----
 
-	/**
-	 * Cache entries written before this time are fetched again, so a forced sync also
-	 * refreshes pages not opened until a later session.
-	 */
-	public void setSyncedAt(long syncedAt)
+	/** A cache entry is current when it was written for the game revision now running. */
+	private boolean isCurrent(int cachedRevision)
 	{
-		this.syncedAt = syncedAt;
-	}
-
-	/**
-	 * A cache entry is current when it was written for the game revision now running and
-	 * after the last forced sync.
-	 */
-	private boolean isCurrent(int cachedRevision, long fetchedAt)
-	{
-		if (fetchedAt < syncedAt)
-		{
-			return false;
-		}
 		int now = gameRevision();
 		// Before the game cache is known, keep whatever is cached rather than pounding the wiki
 		return now <= 0 || cachedRevision == now;

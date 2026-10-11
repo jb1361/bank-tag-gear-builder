@@ -124,7 +124,6 @@ public class BankTagGearBuilderPlugin extends Plugin
 		{
 			log.debug("No plugin directory available; wiki responses will not be cached", e);
 		}
-		wikiClient.setSyncedAt(config.wikiSyncedAt());
 
 		panel = new GearBuilderPanel(this, itemManager, config);
 		BufferedImage icon = ImageUtil.loadImageResource(getClass(), "icon.png");
@@ -259,21 +258,6 @@ public class BankTagGearBuilderPlugin extends Plugin
 	@Subscribe
 	public void onConfigChanged(ConfigChanged event)
 	{
-		if (BankTagGearBuilderConfig.GROUP.equals(event.getGroup()))
-		{
-			if (event.getKey().equals(BankTagGearBuilderConfig.FORCE_WIKI_SYNC_KEY))
-			{
-				if (Boolean.parseBoolean(event.getNewValue()))
-				{
-					forceWikiSync();
-				}
-				return;
-			}
-			if (event.getKey().equals(BankTagGearBuilderConfig.WIKI_SYNCED_AT_KEY))
-			{
-				return;
-			}
-		}
 		// Ignore our own tag_ and bank cache writes, otherwise every save would trigger another re-check
 		if (BankTagGearBuilderConfig.GROUP.equals(event.getGroup())
 			&& !event.getKey().startsWith(GeneratedTagStore.KEY_PREFIX)
@@ -288,23 +272,6 @@ public class BankTagGearBuilderPlugin extends Plugin
 		}
 	}
 
-	/**
-	 * The settings checkbox acts as a button: untick it, mark every cached wiki response as
-	 * stale (also for later sessions) and have the panel load the list again.
-	 */
-	private void forceWikiSync()
-	{
-		configManager.setConfiguration(BankTagGearBuilderConfig.GROUP, BankTagGearBuilderConfig.FORCE_WIKI_SYNC_KEY, false);
-		long now = System.currentTimeMillis();
-		configManager.setConfiguration(BankTagGearBuilderConfig.GROUP, BankTagGearBuilderConfig.WIKI_SYNCED_AT_KEY, now);
-		wikiClient.setSyncedAt(now);
-		GearBuilderPanel p = panel;
-		if (p != null)
-		{
-			SwingUtilities.invokeLater(p::reloadFromWiki);
-		}
-	}
-
 	// ---- Called from the side panel (Swing thread). Callbacks are delivered on the Swing thread. ----
 
 	public void loadContent(Consumer<List<ContentPage>> onSuccess, Consumer<String> onError)
@@ -314,9 +281,12 @@ public class BankTagGearBuilderPlugin extends Plugin
 			err -> SwingUtilities.invokeLater(() -> onError.accept(err)));
 	}
 
-	public void fetchStrategy(ContentPage page, Consumer<StrategyPage> onSuccess, Consumer<String> onError)
+	/**
+	 * @param force skip the cached copy and download the page from the wiki, replacing the cache
+	 */
+	public void fetchStrategy(ContentPage page, boolean force, Consumer<StrategyPage> onSuccess, Consumer<String> onError)
 	{
-		wikiClient.fetchStrategy(page, false,
+		wikiClient.fetchStrategy(page, force,
 			sp -> SwingUtilities.invokeLater(() -> onSuccess.accept(sp)),
 			err -> SwingUtilities.invokeLater(() -> onError.accept(err)));
 	}

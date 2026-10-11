@@ -41,7 +41,6 @@ overwriting them. "Refresh all" re-fetches each tag's wiki page and flags tags w
 | Count equipped and inventory items | On, Off | On |
 | Tag naming | Content + style, Content name | Content + style |
 | Arrange items by slot | On, Off | On |
-| Sync from wiki now | Tick to run; unticks itself | Off |
 
 ## Notes
 
@@ -61,8 +60,9 @@ overwriting them. "Refresh all" re-fetches each tag's wiki page and flags tags w
   first session the plugin works straight away at login. Open the bank to refresh the cache.
 - Wiki responses are cached on disk in the plugin's folder, keyed by the game cache revision.
   The wiki is only asked again after a game update, for a page not fetched before, when you
-  press "Refresh all", or when you tick "Sync from wiki now" in the plugin settings, which
-  marks every cached page as stale.
+  press "Refresh all", or when you press "Sync from wiki". That button appears beside
+  "1. Pick content" once content is picked, asks for confirmation, and then downloads just
+  that page again.
 - Where a page and its "/Strategies" subpage would both be listed under the same name, only
   the main page is shown.
 - Gear data comes only from the OSRS Wiki. The plugin resolves item names to item ids locally
