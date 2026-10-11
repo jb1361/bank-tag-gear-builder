@@ -6,35 +6,75 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 import javax.inject.Inject;
 import javax.inject.Singleton;
+import lombok.extern.slf4j.Slf4j;
+import net.runelite.api.Client;
+import net.runelite.api.gameval.InterfaceID;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.plugins.banktags.BankTagsPlugin;
+import net.runelite.client.plugins.banktags.BankTagsService;
 import net.runelite.client.plugins.banktags.TagManager;
 import net.runelite.client.plugins.banktags.tabs.Layout;
 import net.runelite.client.plugins.banktags.tabs.LayoutManager;
+import net.runelite.client.plugins.banktags.tabs.TabManager;
+import net.runelite.client.plugins.banktags.tabs.TagTab;
 import net.runelite.client.util.Text;
 
 /**
- * Writes tags into the Bank Tags plugin's storage.
+ * Writes tags into the Bank Tags plugin's storage. Must be called on the client thread.
  * <p>
- * Tab names and icons are written straight to the Bank Tags config keys rather than through
- * its TabManager, because TabManager only holds the tab list while the bank is open and
- * saving through it with the bank closed would drop the player's other tabs.
+ * Tab names and icons are written to the Bank Tags config keys, which is what its TabManager
+ * does on save. TabManager itself only holds the tab list while the bank is open, so it is
+ * only updated (and only then saved through) when the bank is open and its list matches
+ * the saved one. Saving through it with the bank closed would drop the player's other tabs.
  */
+@Slf4j
 @Singleton
 public class BankTagWriter
 {
+	private final Client client;
 	private final TagManager tagManager;
+	private final TabManager tabManager;
 	private final LayoutManager layoutManager;
+	private final BankTagsService bankTagsService;
 	private final ConfigManager configManager;
 
 	@Inject
-	private BankTagWriter(TagManager tagManager, LayoutManager layoutManager, ConfigManager configManager)
+	private BankTagWriter(Client client, TagManager tagManager, TabManager tabManager, LayoutManager layoutManager,
+		BankTagsService bankTagsService, ConfigManager configManager)
 	{
+		this.client = client;
 		this.tagManager = tagManager;
+		this.tabManager = tabManager;
 		this.layoutManager = layoutManager;
+		this.bankTagsService = bankTagsService;
 		this.configManager = configManager;
+	}
+
+	public boolean isBankOpen()
+	{
+		return client.getWidget(InterfaceID.Bankmain.ITEMS_CONTAINER) != null;
+	}
+
+	private List<String> savedTabNames()
+	{
+		return new ArrayList<>(Text.fromCSV(nullToEmpty(configManager.getConfiguration(BankTagsPlugin.CONFIG_GROUP, BankTagsPlugin.TAG_TABS_CONFIG))));
+	}
+
+	/**
+	 * True when Bank Tags' in-memory tab list is loaded and agrees with the saved list, which
+	 * means it is safe to change the list through TabManager and let it save.
+	 */
+	private boolean liveTabsLoaded()
+	{
+		if (!isBankOpen())
+		{
+			return false;
+		}
+		List<String> live = tabManager.getTabs().stream().map(TagTab::getTag).collect(Collectors.toList());
+		return live.equals(savedTabNames());
 	}
 
 	/**
@@ -71,20 +111,48 @@ public class BankTagWriter
 			tagManager.addTag(id, tag, true);
 		}
 
-		List<String> tabs = new ArrayList<>(Text.fromCSV(nullToEmpty(configManager.getConfiguration(BankTagsPlugin.CONFIG_GROUP, BankTagsPlugin.TAG_TABS_CONFIG))));
-		if (!tabs.contains(tag))
-		{
-			tabs.add(tag);
-			configManager.setConfiguration(BankTagsPlugin.CONFIG_GROUP, BankTagsPlugin.TAG_TABS_CONFIG, Text.toCSV(tabs));
-		}
-		if (iconItemId > 0)
-		{
-			configManager.setConfiguration(BankTagsPlugin.CONFIG_GROUP, BankTagsPlugin.TAG_ICON_PREFIX + tag, String.valueOf(iconItemId));
-		}
-
 		if (layoutBySlot && layoutSource != null)
 		{
 			layoutManager.saveLayout(buildLayout(tag, layoutSource));
+		}
+
+		if (liveTabsLoaded())
+		{
+			// Bank is open: register the tab with Bank Tags' live list so it is kept if the
+			// player reorders or adds tabs before closing the bank, then save through it.
+			TagTab tab = tabManager.find(tag);
+			if (tab == null)
+			{
+				tab = new TagTab();
+				tab.setTag(tag);
+				tab.setIconItemId(iconItemId > 0 ? iconItemId : 0);
+				tabManager.add(tab);
+			}
+			else if (iconItemId > 0)
+			{
+				tab.setIconItemId(iconItemId);
+			}
+			tabManager.save();
+		}
+		else
+		{
+			List<String> tabs = savedTabNames();
+			if (!tabs.contains(tag))
+			{
+				tabs.add(tag);
+				configManager.setConfiguration(BankTagsPlugin.CONFIG_GROUP, BankTagsPlugin.TAG_TABS_CONFIG, Text.toCSV(tabs));
+			}
+			if (iconItemId > 0)
+			{
+				configManager.setConfiguration(BankTagsPlugin.CONFIG_GROUP, BankTagsPlugin.TAG_ICON_PREFIX + tag, String.valueOf(iconItemId));
+			}
+		}
+
+		if (isBankOpen())
+		{
+			// Show the new tag's contents right away. The tab strip itself is redrawn by
+			// Bank Tags the next time the bank is opened.
+			bankTagsService.openBankTag(tag, BankTagsService.OPTION_ALLOW_MODIFICATIONS);
 		}
 	}
 
@@ -189,13 +257,25 @@ public class BankTagWriter
 	public void deleteTag(String tag)
 	{
 		tag = sanitizeTagName(tag);
-		tagManager.removeTag(tag);
-		List<String> tabs = new ArrayList<>(Text.fromCSV(nullToEmpty(configManager.getConfiguration(BankTagsPlugin.CONFIG_GROUP, BankTagsPlugin.TAG_TABS_CONFIG))));
-		if (tabs.remove(tag))
+		if (isBankOpen() && tag.equals(bankTagsService.getActiveTag()))
 		{
-			configManager.setConfiguration(BankTagsPlugin.CONFIG_GROUP, BankTagsPlugin.TAG_TABS_CONFIG, Text.toCSV(tabs));
+			bankTagsService.closeBankTag();
 		}
-		configManager.unsetConfiguration(BankTagsPlugin.CONFIG_GROUP, BankTagsPlugin.TAG_ICON_PREFIX + tag);
+		tagManager.removeTag(tag);
+		if (liveTabsLoaded())
+		{
+			tabManager.remove(tag);
+			tabManager.save();
+		}
+		else
+		{
+			List<String> tabs = savedTabNames();
+			if (tabs.remove(tag))
+			{
+				configManager.setConfiguration(BankTagsPlugin.CONFIG_GROUP, BankTagsPlugin.TAG_TABS_CONFIG, Text.toCSV(tabs));
+			}
+			configManager.unsetConfiguration(BankTagsPlugin.CONFIG_GROUP, BankTagsPlugin.TAG_ICON_PREFIX + tag);
+		}
 		layoutManager.removeLayout(tag);
 	}
 

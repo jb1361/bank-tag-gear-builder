@@ -415,7 +415,7 @@ public class GearBuilderPanel extends PluginPanel
 		plugin.createTag(currentPage, setup, currentResult, tag ->
 		{
 			createButton.setEnabled(true);
-			setWrapped(statusLabel, "Created tag '" + tag + "'. Reopen the bank to see it.");
+			setWrapped(statusLabel, "Created tag tab '" + tag + "'. If the bank is open it shows the tag now; the tab itself appears next time the bank opens.");
 		});
 	}
 

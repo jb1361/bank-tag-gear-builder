@@ -254,7 +254,8 @@ public class BankTagGearBuilderPlugin extends Plugin
 			{
 				generated.add(g);
 			}
-			chat("Created tag '" + tag + "' with " + result.getTagItemIds().size() + " items. Reopen the bank to see it.");
+			chat("Created tag tab '" + tag + "' with " + result.getTagItemIds().size() + " items."
+				+ (writer.isBankOpen() ? " It is open now; the tab appears in the strip next time you open the bank." : ""));
 			recheckAll();
 			SwingUtilities.invokeLater(() -> onDone.accept(tag));
 		});
