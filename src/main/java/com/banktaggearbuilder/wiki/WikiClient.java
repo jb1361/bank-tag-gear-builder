@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
@@ -33,6 +34,7 @@ public class WikiClient
 {
 	private static final HttpUrl API = HttpUrl.parse("https://oldschool.runescape.wiki/api.php");
 	private static final String EQUIPMENT_TEMPLATE = "Template:Recommended equipment";
+	private static final String COMBAT_ACHIEVEMENTS_CATEGORY = "Category:Combat Achievements";
 
 	private final OkHttpClient okHttpClient;
 	private final Gson gson;
@@ -50,38 +52,66 @@ public class WikiClient
 	 */
 	public void listContent(Consumer<List<ContentPage>> onSuccess, Consumer<String> onError)
 	{
-		listContentPage(null, new ArrayList<>(), onSuccess, onError);
+		listContentPage(null, new LinkedHashMap<>(), onSuccess, onError);
 	}
 
-	private void listContentPage(String continueToken, List<ContentPage> acc, Consumer<List<ContentPage>> onSuccess, Consumer<String> onError)
+	/**
+	 * Lists pages using the template together with whether each is a Combat Achievements
+	 * task page; those are left out since their gear tables describe a single task, not
+	 * the content. {@code continuation} carries the API's continue parameters between calls.
+	 */
+	private void listContentPage(Map<String, String> continuation, Map<String, Boolean> acc, Consumer<List<ContentPage>> onSuccess, Consumer<String> onError)
 	{
 		HttpUrl.Builder url = API.newBuilder()
 			.addQueryParameter("action", "query")
-			.addQueryParameter("list", "embeddedin")
-			.addQueryParameter("eititle", EQUIPMENT_TEMPLATE)
-			.addQueryParameter("einamespace", "0")
-			.addQueryParameter("eilimit", "500")
+			.addQueryParameter("generator", "embeddedin")
+			.addQueryParameter("geititle", EQUIPMENT_TEMPLATE)
+			.addQueryParameter("geinamespace", "0")
+			.addQueryParameter("geilimit", "500")
+			.addQueryParameter("prop", "categories")
+			.addQueryParameter("clcategories", COMBAT_ACHIEVEMENTS_CATEGORY)
+			.addQueryParameter("cllimit", "500")
 			.addQueryParameter("format", "json")
 			.addQueryParameter("formatversion", "2");
-		if (continueToken != null)
+		if (continuation != null)
 		{
-			url.addQueryParameter("eicontinue", continueToken);
+			for (Map.Entry<String, String> e : continuation.entrySet())
+			{
+				url.addQueryParameter(e.getKey(), e.getValue());
+			}
 		}
 
 		get(url.build(), onError, json ->
 		{
-			JsonArray pages = json.getAsJsonObject("query").getAsJsonArray("embeddedin");
+			JsonObject query = json.getAsJsonObject("query");
+			JsonArray pages = query == null ? new JsonArray() : query.getAsJsonArray("pages");
 			for (JsonElement e : pages)
 			{
-				acc.add(new ContentPage(e.getAsJsonObject().get("title").getAsString()));
+				JsonObject page = e.getAsJsonObject();
+				String title = page.get("title").getAsString();
+				boolean combatAchievement = page.has("categories") && page.getAsJsonArray("categories").size() > 0;
+				acc.merge(title, combatAchievement, Boolean::logicalOr);
 			}
 			JsonObject cont = json.getAsJsonObject("continue");
-			if (cont != null && cont.has("eicontinue"))
+			if (cont != null)
 			{
-				listContentPage(cont.get("eicontinue").getAsString(), acc, onSuccess, onError);
+				Map<String, String> next = new HashMap<>();
+				for (Map.Entry<String, JsonElement> e : cont.entrySet())
+				{
+					next.put(e.getKey(), e.getValue().getAsString());
+				}
+				listContentPage(next, acc, onSuccess, onError);
 				return;
 			}
-			List<ContentPage> result = disambiguate(acc);
+			List<ContentPage> result = new ArrayList<>();
+			for (Map.Entry<String, Boolean> e : acc.entrySet())
+			{
+				if (!e.getValue())
+				{
+					result.add(new ContentPage(e.getKey()));
+				}
+			}
+			result = disambiguate(result);
 			result.sort(Comparator.comparing(p -> p.getDisplayName().toLowerCase()));
 			onSuccess.accept(result);
 		});
