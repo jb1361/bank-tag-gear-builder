@@ -89,13 +89,13 @@ public class BankTagWriter
 	}
 
 	/**
-	 * Lays the tag out like the equipment screen in the 8-wide bank grid:
+	 * Lays the tag out as a compact equipment-screen shape in the 8-wide bank grid:
 	 * <pre>
-	 *   . . . H . . 2h S1
-	 *   . . C N A . S2 S3
-	 *   . W . B . Sh S4 S5
-	 *   . . . L . . .  .
-	 *   . G . F . R .  .
+	 *   .  H  .   .  2h S1 S2 S3
+	 *   C  N  A   .  S4 S5 .  .
+	 *   W  B  Sh  .  .  .  .  .
+	 *   .  L  .   .  .  .  .  .
+	 *   G  F  R   .  .  .  .  .
 	 * </pre>
 	 * followed by inventory items on the rows below.
 	 */
@@ -105,8 +105,15 @@ public class BankTagWriter
 		Layout layout = new Layout(tag);
 		Set<Integer> placed = new HashSet<>();
 
-		// Right-hand columns hold two-handed and special attack weapons, filled top to bottom
-		int[] extraCells = {w * 0 + 6, w * 0 + 7, w * 1 + 6, w * 1 + 7, w * 2 + 6, w * 2 + 7, w * 3 + 6, w * 3 + 7, w * 4 + 6, w * 4 + 7};
+		// Columns 4-7 to the right of the equipment block hold two-handed and special attack weapons
+		int[] extraCells = new int[5 * 4];
+		for (int row = 0, i = 0; row < 5; row++)
+		{
+			for (int col = 4; col < w; col++)
+			{
+				extraCells[i++] = w * row + col;
+			}
+		}
 		int extra = 0;
 
 		// Note: Layout.setItemAtPos takes (itemId, pos)
@@ -145,27 +152,27 @@ public class BankTagWriter
 		switch (slot)
 		{
 			case HEAD:
-				return w * 0 + 3;
+				return w * 0 + 1;
 			case CAPE:
-				return w * 1 + 2;
+				return w * 1 + 0;
 			case NECK:
-				return w * 1 + 3;
+				return w * 1 + 1;
 			case AMMO:
-				return w * 1 + 4;
+				return w * 1 + 2;
 			case WEAPON:
-				return w * 2 + 1;
+				return w * 2 + 0;
 			case BODY:
-				return w * 2 + 3;
+				return w * 2 + 1;
 			case SHIELD:
-				return w * 2 + 5;
+				return w * 2 + 2;
 			case LEGS:
-				return w * 3 + 3;
+				return w * 3 + 1;
 			case HANDS:
-				return w * 4 + 1;
+				return w * 4 + 0;
 			case FEET:
-				return w * 4 + 3;
+				return w * 4 + 1;
 			case RING:
-				return w * 4 + 5;
+				return w * 4 + 2;
 			default:
 				return -1;
 		}
