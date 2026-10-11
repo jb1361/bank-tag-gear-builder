@@ -290,8 +290,23 @@ public class BankTagGearBuilderPlugin extends Plugin
 		itemNameIndex.ensureBuilt(() ->
 		{
 			BuildResult result = matcher.match(setup, config.matchEquippedAndInventory(), config.includeInventory());
+			// Building is the moment the player expects everything to be current
+			recheckAll();
 			SwingUtilities.invokeLater(() -> onResult.accept(result));
 		});
+	}
+
+	/** Whether a generated tag with this name already exists. Safe from any thread. */
+	public boolean hasGeneratedTag(String tag)
+	{
+		for (GeneratedTag g : new ArrayList<>(generated))
+		{
+			if (g.getTag().equals(tag))
+			{
+				return true;
+			}
+		}
+		return false;
 	}
 
 	public String tagNameFor(ContentPage page, GearSetup setup)
@@ -342,7 +357,9 @@ public class BankTagGearBuilderPlugin extends Plugin
 			BuildResult result = matcher.match(g.getSetup(), config.matchEquippedAndInventory(), config.includeInventory());
 			List<String> changes = diff(g, result);
 			applyResult(g, result, g.getItemIds());
-			chat("Updated tag '" + g.getTag() + "': " + String.join("; ", changes));
+			chat(changes.isEmpty()
+				? "Rebuilt tag '" + g.getTag() + "' with the current picks and layout."
+				: "Updated tag '" + g.getTag() + "': " + String.join("; ", changes));
 			recheckAll();
 		});
 	}

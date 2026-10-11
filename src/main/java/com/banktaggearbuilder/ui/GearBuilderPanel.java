@@ -402,6 +402,7 @@ public class GearBuilderPanel extends PluginPanel
 		{
 			buildButton.setEnabled(true);
 			currentResult = result;
+			createButton.setText(plugin.hasGeneratedTag(plugin.tagNameFor(currentPage.getPage(), setup)) ? "Update tag" : "Create tag");
 			showResult(result);
 			updateStatusLabel();
 			switch (config.outputMode())
@@ -581,15 +582,20 @@ public class GearBuilderPanel extends PluginPanel
 
 		JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
 		buttons.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		if (status.isUpdateAvailable())
+		if (status.getLatest() != null)
 		{
-			JButton apply = smallButton("Apply update");
+			// "Apply update" when picks changed; "Rebuild" otherwise, which rewrites the tag and
+			// its layout from the current picks (useful after a layout change)
+			JButton apply = smallButton(status.isUpdateAvailable() ? "Apply update" : "Rebuild");
+			apply.setToolTipText(status.isUpdateAvailable()
+				? "Rewrite the tag with the changes listed above"
+				: "Rewrite the tag and its layout from the current picks");
 			apply.addActionListener(e ->
 			{
 				if (status.isUserEdited())
 				{
 					int choice = JOptionPane.showConfirmDialog(this,
-						"You edited the tag '" + g.getTag() + "' yourself.\nApplying the update rewrites it with the plugin's picks. Continue?",
+						"You edited the tag '" + g.getTag() + "' yourself.\nRewriting it replaces your edits with the plugin's picks. Continue?",
 						"Overwrite your edits?", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
 					if (choice != JOptionPane.YES_OPTION)
 					{
