@@ -172,6 +172,51 @@ public class WikiTextParserTest
 	}
 
 	@Test
+	public void matchesRoleColumnsOfAnExampleSetupsTable() throws IOException
+	{
+		List<GearSetup> setups = parser.parse(resource("tob-strategies.wikitext"));
+
+		// Only the top-level Equipment section: Entry mode, Learner, Melee, Magic, Range + combined
+		assertTrue(setups.stream().allMatch(s -> s.getSection().equals("Equipment")));
+		assertEquals(6, setups.size());
+
+		// Only the combat-style tables are combined; Entry mode and Learner stay separate
+		GearSetup combined = setups.get(0);
+		assertTrue(combined.isCombined());
+		assertEquals("All (Melee + Magic + Range)", combined.getStyle());
+
+		// The example setups table has role columns; each style gets its own column
+		GearSetup melee = find(setups, "Melee");
+		GearSetup magic = find(setups, "Magic");
+		GearSetup range = find(setups, "Range");
+		assertFalse(melee.isInventoryFromTiers());
+		assertEquals(singles("Cosmic rune", "Fire rune", "Blood rune", "Aether rune"), melee.getRunePouch());
+		assertEquals(singles("Blood rune", "Death rune", "Water rune", "Soul rune"), magic.getRunePouch());
+		assertEquals(singles("Water rune", "Earth rune", "Death rune", "Astral rune"), range.getRunePouch());
+		assertTrue(range.getInventory().stream().anyMatch(n -> n.get(0).equals("Ranging potion(4)")));
+
+		// The Entry Mode tab carries its own inventory inside the tabber
+		GearSetup entry = find(setups, "Entry mode");
+		assertEquals("Void ranger helm", entry.getInventory().get(0).get(0));
+	}
+
+	@Test
+	public void unionsTierColumnsOfChambersOfXeric() throws IOException
+	{
+		List<GearSetup> setups = parser.parse(resource("cox-strategies.wikitext"));
+
+		assertEquals(4, setups.size());
+		assertTrue(setups.stream().allMatch(s -> s.getSection().equals("Equipment")));
+		assertEquals("All (Melee + Ranged + Magic)", setups.get(0).getStyle());
+
+		// The Setups table columns are tiers (Minimum, Standard, ...): union, supplies only
+		GearSetup melee = find(setups, "Melee");
+		assertTrue(melee.isInventoryFromTiers());
+		assertTrue(melee.getInventory().stream().anyMatch(n -> n.get(0).equals("Toxic blowpipe")));
+		assertTrue(melee.getInventory().stream().anyMatch(n -> n.get(0).equals("Saradomin brew(4)")));
+	}
+
+	@Test
 	public void handlesAlternativesWithoutPlink()
 	{
 		List<Alternative> alts = parser.parseAlternatives("[[Rune crossbow]] / Dragon crossbow<ref>note</ref>");

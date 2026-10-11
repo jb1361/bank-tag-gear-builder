@@ -66,6 +66,16 @@ public class WikiTextParser
 		boolean fromTiers;
 	}
 
+	/** A wikitable: column headers and rows of raw cell text. */
+	@Value
+	private static class WikiTable
+	{
+		List<String> headers;
+		List<List<String>> rows;
+		int start;
+		int end;
+	}
+
 	public List<GearSetup> parse(String wikitext)
 	{
 		String text = COMMENT.matcher(wikitext).replaceAll("");
@@ -76,7 +86,10 @@ public class WikiTextParser
 		{
 			GearSetup setup = new GearSetup();
 			setup.setStyle(cleanText(t.getParams().getOrDefault("style", "")));
-			setup.setSection(sectionFor(headings, t.getStart()));
+			// Tables in the page's top-level Equipment section all belong together even when a
+			// sub-heading (e.g. "Scythe considerations") sits between them
+			String top = topSectionFor(headings, t.getStart());
+			setup.setSection(top.equalsIgnoreCase("equipment") ? top : sectionFor(headings, t.getStart()));
 			for (Map.Entry<String, String> e : t.getParams().entrySet())
 			{
 				Matcher m = SLOT_PARAM.matcher(e.getKey());
@@ -122,8 +135,9 @@ public class WikiTextParser
 	}
 
 	/**
-	 * Where a section holds several tables (melee, ranged and magic switches for a raid, for
-	 * example), adds a combined setup for the section that builds all of them into one tag.
+	 * Where a section holds several combat-style tables (melee, ranged and magic for a raid,
+	 * for example), adds a combined setup that builds all of them into one tag. Tables named
+	 * after a tier or mode ("Learner", "Entry mode") are left out of the combination.
 	 */
 	private static List<GearSetup> addCombined(List<GearSetup> setups)
 	{
@@ -137,25 +151,39 @@ public class WikiTextParser
 		for (Map.Entry<String, List<GearSetup>> e : bySection.entrySet())
 		{
 			List<GearSetup> group = e.getValue();
-			if (group.size() > 1)
+			List<GearSetup> styled = new ArrayList<>();
+			for (GearSetup s : group)
+			{
+				if (isCombatStyle(s.getStyle()))
+				{
+					styled.add(s);
+				}
+			}
+			if (styled.size() > 1)
 			{
 				GearSetup combined = new GearSetup();
 				combined.setSection(e.getKey());
 				List<String> styles = new ArrayList<>();
-				for (GearSetup s : group)
+				for (GearSetup s : styled)
 				{
-					styles.add(s.getStyle().isEmpty() ? "setup " + (styles.size() + 1) : s.getStyle());
+					styles.add(s.getStyle());
 				}
 				combined.setStyle("All (" + String.join(" + ", styles) + ")");
-				combined.setComponents(new ArrayList<>(group));
-				combined.setInventory(union(group, true));
-				combined.setRunePouch(union(group, false));
-				combined.setInventoryFromTiers(group.stream().anyMatch(GearSetup::isInventoryFromTiers));
+				combined.setComponents(new ArrayList<>(styled));
+				combined.setInventory(union(styled, true));
+				combined.setRunePouch(union(styled, false));
+				combined.setInventoryFromTiers(styled.stream().anyMatch(GearSetup::isInventoryFromTiers));
 				out.add(combined);
 			}
 			out.addAll(group);
 		}
 		return out;
+	}
+
+	private static boolean isCombatStyle(String style)
+	{
+		String n = normalize(style);
+		return n.contains("melee") || n.contains("range") || n.contains("mage");
 	}
 
 	private static List<List<String>> union(List<GearSetup> setups, boolean inventory)
@@ -202,10 +230,6 @@ public class WikiTextParser
 				alternatives.add(alternative);
 			}
 		}
-
-		// "A and / B" (an "and" followed by a line break) leaves an empty-looking piece between
-		// two real ones; merge an alternative that has no items into its neighbour. Already
-		// handled above by skipping empties, so nothing more to do here.
 		return alternatives;
 	}
 
@@ -258,11 +282,37 @@ public class WikiTextParser
 		return names;
 	}
 
+	// ---- Inventories ----
+
+	/**
+	 * Collects every inventory on the page with the best label available: the column header
+	 * for inventories in a table of example loadouts, the tab name for ones inside a tabber,
+	 * and no label otherwise.
+	 */
 	private List<InventoryBlock> findInventories(String text)
 	{
 		List<InventoryBlock> blocks = new ArrayList<>();
-		String lower = text.toLowerCase(Locale.ROOT);
+
+		List<WikiTable> tables = findTables(text);
+		for (WikiTable table : tables)
+		{
+			blocks.addAll(blocksFromTable(table));
+		}
+
+		// Look at the rest of the page with the tables blanked out so nothing is counted twice
+		StringBuilder rest = new StringBuilder(text);
+		for (WikiTable table : tables)
+		{
+			for (int i = table.getStart(); i < table.getEnd(); i++)
+			{
+				rest.setCharAt(i, ' ');
+			}
+		}
+		String remaining = rest.toString();
+
+		String lower = remaining.toLowerCase(Locale.ROOT);
 		int idx = 0;
+		boolean sawTabber = false;
 		while (true)
 		{
 			int open = lower.indexOf("<tabber>", idx);
@@ -270,12 +320,13 @@ public class WikiTextParser
 			{
 				break;
 			}
+			sawTabber = true;
 			int close = lower.indexOf("</tabber>", open);
 			if (close < 0)
 			{
-				close = text.length();
+				close = remaining.length();
 			}
-			String inner = text.substring(open + "<tabber>".length(), close);
+			String inner = remaining.substring(open + "<tabber>".length(), close);
 			for (String tab : inner.split("\\|-\\|"))
 			{
 				String label = "";
@@ -289,9 +340,9 @@ public class WikiTextParser
 			idx = close;
 		}
 
-		if (blocks.isEmpty())
+		if (blocks.isEmpty() || !sawTabber)
 		{
-			addBlock(blocks, "", text);
+			addBlock(blocks, "", remaining);
 		}
 		return blocks;
 	}
@@ -311,12 +362,56 @@ public class WikiTextParser
 		}
 		for (int i = 0; i < inventories.size(); i++)
 		{
-			// Pair the i-th inventory with the i-th pouch when a section lists several of each
-			// (a table of example setups), otherwise share the only pouch
+			// Pair the i-th inventory with the i-th pouch when a section lists several of each,
+			// otherwise share the only pouch
 			Template pouch = pouches.isEmpty() ? null : pouches.get(Math.min(i, pouches.size() - 1));
 			blocks.add(new InventoryBlock(label, inventoryEntries(inventories.get(i)),
 				pouch == null ? new ArrayList<>() : runeEntries(pouch), false));
 		}
+	}
+
+	/** One block per table column that holds an inventory or rune pouch, labelled by its header. */
+	private List<InventoryBlock> blocksFromTable(WikiTable table)
+	{
+		int columns = table.getHeaders().size();
+		for (List<String> row : table.getRows())
+		{
+			columns = Math.max(columns, row.size());
+		}
+
+		List<InventoryBlock> blocks = new ArrayList<>();
+		for (int c = 0; c < columns; c++)
+		{
+			Template inventory = null;
+			Template pouch = null;
+			for (List<String> row : table.getRows())
+			{
+				if (c >= row.size())
+				{
+					continue;
+				}
+				String cell = row.get(c);
+				if (inventory == null)
+				{
+					List<Template> found = findTemplates(cell, "inventory");
+					inventory = found.isEmpty() ? null : found.get(0);
+				}
+				if (pouch == null)
+				{
+					List<Template> found = findTemplates(cell, "rune pouch");
+					pouch = found.isEmpty() ? null : found.get(0);
+				}
+			}
+			if (inventory == null && pouch == null)
+			{
+				continue;
+			}
+			String label = c < table.getHeaders().size() ? table.getHeaders().get(c) : "";
+			blocks.add(new InventoryBlock(label,
+				inventory == null ? new ArrayList<>() : inventoryEntries(inventory),
+				pouch == null ? new ArrayList<>() : runeEntries(pouch), false));
+		}
+		return blocks;
 	}
 
 	private List<List<String>> inventoryEntries(Template inventory)
@@ -361,9 +456,10 @@ public class WikiTextParser
 	}
 
 	/**
-	 * Picks the inventory for a style: an exact or partial label match, the only inventory if
-	 * there is one, or, when a page lists several inventories that are not labelled by style
-	 * (a table of example setups), the union of all of them.
+	 * Picks the inventory for a style: an exact or partial label match ("Melee" matches
+	 * "Melee Role", "Magic" matches "Mage/Freezer Role"), the only inventory if there is one,
+	 * or, when a page lists several inventories that are not labelled by style (a table of
+	 * example tiers), the union of all of them.
 	 */
 	private InventoryBlock matchInventory(String style, List<InventoryBlock> inventories)
 	{
@@ -411,10 +507,227 @@ public class WikiTextParser
 		return new InventoryBlock("", new ArrayList<>(entries.values()), new ArrayList<>(runes.values()), true);
 	}
 
+	/** Lower-case alphanumerics only, with "magic" and "ranged" folded to "mage" and "range". */
 	private static String normalize(String s)
 	{
-		return s == null ? "" : s.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
+		if (s == null)
+		{
+			return "";
+		}
+		return s.toLowerCase(Locale.ROOT)
+			.replace("magic", "mage")
+			.replace("ranged", "range")
+			.replaceAll("[^a-z0-9]", "");
 	}
+
+	// ---- Tables ----
+
+	/**
+	 * Parses every top-level wikitable ({@code {| ... |}}). Cells are split only where a
+	 * {@code |}, {@code ||}, {@code !} or {@code !!} occurs outside a template, so a template's
+	 * own parameter lines inside a cell are kept with it.
+	 */
+	private static List<WikiTable> findTables(String text)
+	{
+		List<WikiTable> tables = new ArrayList<>();
+		int idx = 0;
+		while (true)
+		{
+			int start = indexOfLineStart(text, "{|", idx);
+			if (start < 0)
+			{
+				break;
+			}
+			int end = findTableEnd(text, start);
+			if (end < 0)
+			{
+				break;
+			}
+			tables.add(parseTable(text.substring(start, end), start, end));
+			idx = end;
+		}
+		return tables;
+	}
+
+	/** Index of {@code needle} at the start of a line at or after {@code from}, or -1. */
+	private static int indexOfLineStart(String text, String needle, int from)
+	{
+		int i = text.indexOf(needle, from);
+		while (i >= 0)
+		{
+			if (i == 0 || text.charAt(i - 1) == '\n')
+			{
+				return i;
+			}
+			i = text.indexOf(needle, i + 1);
+		}
+		return -1;
+	}
+
+	/** Index just past the {@code |}} closing the table opened at {@code start}, nested tables included. */
+	private static int findTableEnd(String text, int start)
+	{
+		int depth = 0;
+		int i = start;
+		while (i < text.length())
+		{
+			int lineEnd = text.indexOf('\n', i);
+			if (lineEnd < 0)
+			{
+				lineEnd = text.length();
+			}
+			String line = text.substring(i, lineEnd).trim();
+			if (line.startsWith("{|"))
+			{
+				depth++;
+			}
+			else if (line.startsWith("|}"))
+			{
+				depth--;
+				if (depth == 0)
+				{
+					return lineEnd;
+				}
+			}
+			i = lineEnd + 1;
+		}
+		return -1;
+	}
+
+	private static WikiTable parseTable(String table, int start, int end)
+	{
+		List<String> headers = new ArrayList<>();
+		List<List<String>> rows = new ArrayList<>();
+		List<String> row = new ArrayList<>();
+		StringBuilder cell = null;
+		boolean cellIsHeader = false;
+		int depth = 0;
+
+		String[] lines = table.split("\n");
+		for (int li = 1; li < lines.length; li++)
+		{
+			String line = lines[li];
+			String trimmed = line.trim();
+			if (depth == 0 && (trimmed.startsWith("|}") || trimmed.startsWith("|+")))
+			{
+				continue;
+			}
+			if (depth == 0 && trimmed.startsWith("|-"))
+			{
+				if (cell != null)
+				{
+					finishCell(cell, cellIsHeader, headers, row);
+					cell = null;
+				}
+				if (!row.isEmpty())
+				{
+					rows.add(row);
+					row = new ArrayList<>();
+				}
+				continue;
+			}
+			if (depth == 0 && (trimmed.startsWith("|") || trimmed.startsWith("!")))
+			{
+				boolean header = trimmed.startsWith("!");
+				String rest = trimmed.substring(1);
+				List<String> parts = splitTopLevelString(rest, header ? "!!" : "||");
+				for (int p = 0; p < parts.size(); p++)
+				{
+					if (cell != null)
+					{
+						finishCell(cell, cellIsHeader, headers, row);
+					}
+					cell = new StringBuilder(parts.get(p));
+					cellIsHeader = header;
+				}
+			}
+			else if (cell != null)
+			{
+				cell.append('\n').append(line);
+			}
+			depth += count(line, "{{") - count(line, "}}");
+			if (depth < 0)
+			{
+				depth = 0;
+			}
+		}
+		if (cell != null)
+		{
+			finishCell(cell, cellIsHeader, headers, row);
+		}
+		if (!row.isEmpty())
+		{
+			rows.add(row);
+		}
+		return new WikiTable(headers, rows, start, end);
+	}
+
+	private static void finishCell(StringBuilder cell, boolean header, List<String> headers, List<String> row)
+	{
+		String content = cell.toString();
+		if (header)
+		{
+			// "colspan=2 | Label" keeps the text after the attribute separator; first line only
+			String label = content;
+			int bar = label.indexOf('|');
+			if (bar >= 0 && label.lastIndexOf("{{", bar) < 0 && label.lastIndexOf("[[", bar) < 0)
+			{
+				label = label.substring(bar + 1);
+			}
+			int nl = label.indexOf('\n');
+			if (nl >= 0)
+			{
+				label = label.substring(0, nl);
+			}
+			headers.add(cleanText(label));
+		}
+		else
+		{
+			row.add(content);
+		}
+	}
+
+	private static List<String> splitTopLevelString(String s, String separator)
+	{
+		List<String> parts = new ArrayList<>();
+		int depth = 0;
+		int last = 0;
+		for (int i = 0; i < s.length(); i++)
+		{
+			if (s.startsWith("{{", i))
+			{
+				depth++;
+				i++;
+			}
+			else if (s.startsWith("}}", i))
+			{
+				depth--;
+				i++;
+			}
+			else if (depth == 0 && s.startsWith(separator, i))
+			{
+				parts.add(s.substring(last, i));
+				i += separator.length() - 1;
+				last = i + 1;
+			}
+		}
+		parts.add(s.substring(last));
+		return parts;
+	}
+
+	private static int count(String s, String needle)
+	{
+		int n = 0;
+		int i = s.indexOf(needle);
+		while (i >= 0)
+		{
+			n++;
+			i = s.indexOf(needle, i + needle.length());
+		}
+		return n;
+	}
+
+	// ---- Headings ----
 
 	/** Headings as pseudo-templates: name = heading text, params holds the level. */
 	private static List<Template> findHeadings(String text)
@@ -430,9 +743,27 @@ public class WikiTextParser
 		return out;
 	}
 
+	/** The nearest level-2 ("== ... ==") heading above a position, or "" if none. */
+	private static String topSectionFor(List<Template> headings, int position)
+	{
+		String top = "";
+		for (Template h : headings)
+		{
+			if (h.getStart() >= position)
+			{
+				break;
+			}
+			if (Integer.parseInt(h.getParams().get("level")) == 2)
+			{
+				top = h.getName();
+			}
+		}
+		return top;
+	}
+
 	/**
-	 * The heading a position sits under. A generic "Equipment" sub-heading is replaced by its
-	 * parent heading so a boss's equipment table is labelled with the boss.
+	 * The heading a position sits under. A generic "Equipment" sub-heading is replaced by the
+	 * heading it belongs to so a boss's equipment table is labelled with the boss.
 	 */
 	private static String sectionFor(List<Template> headings, int position)
 	{
@@ -462,6 +793,8 @@ public class WikiTextParser
 		}
 		return nearest.getName();
 	}
+
+	// ---- Templates and text ----
 
 	/**
 	 * Finds templates in {@code text}. If {@code name} is non-null only templates with that
