@@ -86,6 +86,8 @@ public class GearBuilderPanel extends PluginPanel
 	private List<TagStatus> currentStatuses = new ArrayList<>();
 	private StrategyPage currentPage;
 	private BuildResult currentResult;
+	/** The setup {@link #currentResult} was built for. Create/Copy only act on this setup. */
+	private GearSetup resultSetup;
 
 	public GearBuilderPanel(BankTagGearBuilderPlugin plugin, ItemManager itemManager, BankTagGearBuilderConfig config)
 	{
@@ -172,6 +174,14 @@ public class GearBuilderPanel extends PluginPanel
 			}
 		});
 		setupCombo.setEnabled(false);
+		// A result belongs to one setup; changing the selection discards it until Build is pressed again
+		setupCombo.addActionListener(e ->
+		{
+			if (resultSetup != null && resultSetup != selectedSetup())
+			{
+				clearResult();
+			}
+		});
 		body.add(setupCombo);
 		body.add(Box.createVerticalStrut(4));
 
@@ -349,13 +359,10 @@ public class GearBuilderPanel extends PluginPanel
 		}
 		selectedContent = page;
 		currentPage = null;
-		currentResult = null;
+		clearResult();
 		setupCombo.setModel(new DefaultComboBoxModel<>());
 		setupCombo.setEnabled(false);
 		buildButton.setEnabled(false);
-		actionRow.setVisible(false);
-		resultPanel.removeAll();
-		resultPanel.revalidate();
 		setWrapped(sourceLabel, "Fetching " + page.getDisplayName() + "...");
 
 		plugin.fetchStrategy(page, sp ->
@@ -383,6 +390,29 @@ public class GearBuilderPanel extends PluginPanel
 		return s instanceof GearSetup ? (GearSetup) s : null;
 	}
 
+	private void clearResult()
+	{
+		currentResult = null;
+		resultSetup = null;
+		actionRow.setVisible(false);
+		resultPanel.removeAll();
+		resultPanel.revalidate();
+		resultPanel.repaint();
+	}
+
+	/** True if the shown result was built for the setup currently selected. */
+	private boolean resultMatchesSelection()
+	{
+		GearSetup setup = selectedSetup();
+		if (currentResult == null || resultSetup == null || setup != resultSetup)
+		{
+			clearResult();
+			setWrapped(statusLabel, "Press Build for this setup first.");
+			return false;
+		}
+		return true;
+	}
+
 	private void build()
 	{
 		GearSetup setup = selectedSetup();
@@ -401,7 +431,13 @@ public class GearBuilderPanel extends PluginPanel
 		plugin.build(currentPage.getPage(), setup, result ->
 		{
 			buildButton.setEnabled(true);
+			if (selectedSetup() != setup)
+			{
+				// Selection changed while matching; this result is for a setup no longer chosen
+				return;
+			}
 			currentResult = result;
+			resultSetup = setup;
 			createButton.setText(plugin.hasGeneratedTag(plugin.tagNameFor(currentPage.getPage(), setup)) ? "Update tag" : "Create tag");
 			showResult(result);
 			updateStatusLabel();
@@ -422,7 +458,7 @@ public class GearBuilderPanel extends PluginPanel
 	private void doCreate()
 	{
 		GearSetup setup = selectedSetup();
-		if (currentPage == null || setup == null || currentResult == null)
+		if (currentPage == null || setup == null || !resultMatchesSelection())
 		{
 			return;
 		}
@@ -456,7 +492,7 @@ public class GearBuilderPanel extends PluginPanel
 	private void doCopy()
 	{
 		GearSetup setup = selectedSetup();
-		if (currentPage == null || setup == null || currentResult == null)
+		if (currentPage == null || setup == null || !resultMatchesSelection())
 		{
 			return;
 		}
