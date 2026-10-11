@@ -10,6 +10,7 @@ import com.banktaggearbuilder.ui.GearBuilderPanel;
 import com.banktaggearbuilder.wiki.WikiClient;
 import com.google.inject.Provides;
 import java.awt.image.BufferedImage;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -54,7 +55,8 @@ import net.runelite.client.util.ImageUtil;
 @PluginDescriptor(
 	name = "Bank Tag Gear Builder",
 	description = "Builds a Bank Tags tag for a boss or activity from the OSRS Wiki's recommended gear, using only items you own",
-	tags = {"bank", "tags", "gear", "equipment", "setup", "loadout", "wiki", "boss"}
+	tags = {"bank", "tags", "gear", "equipment", "setup", "loadout", "wiki", "boss"},
+	internalName = "bank-tag-gear-builder"
 )
 @PluginDependency(BankTagsPlugin.class)
 public class BankTagGearBuilderPlugin extends Plugin
@@ -114,6 +116,15 @@ public class BankTagGearBuilderPlugin extends Plugin
 	@Override
 	protected void startUp()
 	{
+		try
+		{
+			wikiClient.setCacheDirectory(getPluginDirectory().joinSegment("wiki-cache"));
+		}
+		catch (IOException e)
+		{
+			log.debug("No plugin directory available; wiki responses will not be cached", e);
+		}
+
 		panel = new GearBuilderPanel(this, itemManager, config);
 		BufferedImage icon = ImageUtil.loadImageResource(getClass(), "icon.png");
 		navButton = NavigationButton.builder()
@@ -264,14 +275,14 @@ public class BankTagGearBuilderPlugin extends Plugin
 
 	public void loadContent(Consumer<List<ContentPage>> onSuccess, Consumer<String> onError)
 	{
-		wikiClient.listContent(
+		wikiClient.listContent(false,
 			pages -> SwingUtilities.invokeLater(() -> onSuccess.accept(pages)),
 			err -> SwingUtilities.invokeLater(() -> onError.accept(err)));
 	}
 
 	public void fetchStrategy(ContentPage page, Consumer<StrategyPage> onSuccess, Consumer<String> onError)
 	{
-		wikiClient.fetchStrategy(page,
+		wikiClient.fetchStrategy(page, false,
 			sp -> SwingUtilities.invokeLater(() -> onSuccess.accept(sp)),
 			err -> SwingUtilities.invokeLater(() -> onError.accept(err)));
 	}
@@ -427,7 +438,8 @@ public class BankTagGearBuilderPlugin extends Plugin
 			};
 			for (GeneratedTag g : snapshot)
 			{
-				wikiClient.fetchStrategy(new ContentPage(g.getPageTitle()), sp -> clientThread.invoke(() ->
+				// Explicit refresh: bypass the cache so a changed wiki page is noticed
+				wikiClient.fetchStrategy(new ContentPage(g.getPageTitle()), true, sp -> clientThread.invoke(() ->
 				{
 					if (sp.getRevId() != g.getRevId())
 					{

@@ -8,16 +8,21 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import java.io.IOException;
+import java.io.Reader;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Consumer;
 import javax.inject.Inject;
 import javax.inject.Singleton;
+import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
+import net.runelite.api.Client;
+import net.runelite.client.util.Filepath;
 import okhttp3.Call;
 import okhttp3.Callback;
 import okhttp3.HttpUrl;
@@ -26,7 +31,9 @@ import okhttp3.Request;
 import okhttp3.Response;
 
 /**
- * Talks to the OSRS Wiki MediaWiki API. All callbacks run on the OkHttp thread pool.
+ * Talks to the OSRS Wiki MediaWiki API, with an on-disk cache keyed by the game cache
+ * revision so the wiki is only asked again after a game update (or on an explicit refresh).
+ * Callbacks run on a background thread, never the client thread.
  */
 @Slf4j
 @Singleton
@@ -35,24 +42,103 @@ public class WikiClient
 	private static final HttpUrl API = HttpUrl.parse("https://oldschool.runescape.wiki/api.php");
 	private static final String EQUIPMENT_TEMPLATE = "Template:Recommended equipment";
 	private static final String COMBAT_ACHIEVEMENTS_CATEGORY = "Category:Combat Achievements";
+	private static final String CONTENT_FILE = "content.json";
+	private static final String PAGES_DIR = "pages";
+
+	/** On-disk form of the content list. */
+	@Data
+	private static class CachedContent
+	{
+		private int revision;
+		private List<String> titles = new ArrayList<>();
+		private List<String> overrides = new ArrayList<>();
+	}
+
+	/** On-disk form of one parsed strategy page. */
+	@Data
+	private static class CachedPage
+	{
+		private int revision;
+		private String title;
+		private String displayOverride;
+		private long revId;
+		private long fetchedAt;
+		private List<GearSetup> setups = new ArrayList<>();
+	}
 
 	private final OkHttpClient okHttpClient;
 	private final Gson gson;
+	private final Client client;
+	private final ScheduledExecutorService executor;
 	private final WikiTextParser parser = new WikiTextParser();
 
+	/** Directory for the cache, or null when none is available (then every call goes to the wiki). */
+	private volatile Filepath cacheDir;
+
 	@Inject
-	private WikiClient(OkHttpClient okHttpClient, Gson gson)
+	private WikiClient(OkHttpClient okHttpClient, Gson gson, Client client, ScheduledExecutorService executor)
 	{
 		this.okHttpClient = okHttpClient;
 		this.gson = gson;
+		this.client = client;
+		this.executor = executor;
 	}
 
-	/**
-	 * Lists every main-namespace page that uses the Recommended equipment template.
-	 */
-	public void listContent(Consumer<List<ContentPage>> onSuccess, Consumer<String> onError)
+	public void setCacheDirectory(Filepath dir)
 	{
-		listContentPage(null, new LinkedHashMap<>(), onSuccess, onError);
+		this.cacheDir = dir;
+	}
+
+	/** The game cache revision, which changes with every game update. */
+	private int gameRevision()
+	{
+		return client.getRevision();
+	}
+
+	// ---- Content list ----
+
+	/**
+	 * Lists every main-namespace page that uses the Recommended equipment template, except
+	 * Combat Achievements task pages. Served from the cache unless the game has updated since
+	 * it was written, or {@code force} is set.
+	 */
+	public void listContent(boolean force, Consumer<List<ContentPage>> onSuccess, Consumer<String> onError)
+	{
+		executor.execute(() ->
+		{
+			Filepath file = cacheFile(CONTENT_FILE);
+			if (!force && file != null)
+			{
+				CachedContent cached = readJson(file, CachedContent.class);
+				if (cached != null && isCurrent(cached.getRevision()))
+				{
+					List<ContentPage> pages = new ArrayList<>();
+					for (int i = 0; i < cached.getTitles().size(); i++)
+					{
+						String override = i < cached.getOverrides().size() ? cached.getOverrides().get(i) : null;
+						pages.add(new ContentPage(cached.getTitles().get(i), override));
+					}
+					log.debug("Content list served from cache (revision {})", cached.getRevision());
+					onSuccess.accept(pages);
+					return;
+				}
+			}
+			listContentPage(null, new LinkedHashMap<>(), pages ->
+			{
+				if (file != null)
+				{
+					CachedContent cached = new CachedContent();
+					cached.setRevision(gameRevision());
+					for (ContentPage p : pages)
+					{
+						cached.getTitles().add(p.getTitle());
+						cached.getOverrides().add(p.getDisplayOverride());
+					}
+					writeJson(file, cached);
+				}
+				onSuccess.accept(pages);
+			}, onError);
+		});
 	}
 
 	/**
@@ -143,10 +229,46 @@ public class WikiClient
 		return out;
 	}
 
+	// ---- Strategy pages ----
+
 	/**
-	 * Fetches and parses a strategy page.
+	 * Fetches and parses a strategy page. Served from the cache unless the game has updated
+	 * since the page was written, or {@code force} is set.
 	 */
-	public void fetchStrategy(ContentPage page, Consumer<StrategyPage> onSuccess, Consumer<String> onError)
+	public void fetchStrategy(ContentPage page, boolean force, Consumer<StrategyPage> onSuccess, Consumer<String> onError)
+	{
+		executor.execute(() ->
+		{
+			Filepath file = cacheFile(PAGES_DIR + "/" + fileNameFor(page.getTitle()));
+			if (!force && file != null)
+			{
+				CachedPage cached = readJson(file, CachedPage.class);
+				if (cached != null && isCurrent(cached.getRevision()) && cached.getSetups() != null && !cached.getSetups().isEmpty())
+				{
+					log.debug("{} served from cache (revision {})", page.getTitle(), cached.getRevision());
+					onSuccess.accept(new StrategyPage(page, cached.getRevId(), cached.getFetchedAt(), cached.getSetups()));
+					return;
+				}
+			}
+			fetchStrategyFromWiki(page, sp ->
+			{
+				if (file != null)
+				{
+					CachedPage cached = new CachedPage();
+					cached.setRevision(gameRevision());
+					cached.setTitle(page.getTitle());
+					cached.setDisplayOverride(page.getDisplayOverride());
+					cached.setRevId(sp.getRevId());
+					cached.setFetchedAt(sp.getFetchedAt());
+					cached.setSetups(sp.getSetups());
+					writeJson(file, cached);
+				}
+				onSuccess.accept(sp);
+			}, onError);
+		});
+	}
+
+	private void fetchStrategyFromWiki(ContentPage page, Consumer<StrategyPage> onSuccess, Consumer<String> onError)
 	{
 		HttpUrl url = API.newBuilder()
 			.addQueryParameter("action", "parse")
@@ -175,6 +297,82 @@ public class WikiClient
 			onSuccess.accept(new StrategyPage(page, revId, System.currentTimeMillis(), setups));
 		});
 	}
+
+	// ---- Cache files ----
+
+	/** A cache entry is current when it was written for the game revision now running. */
+	private boolean isCurrent(int cachedRevision)
+	{
+		int now = gameRevision();
+		// Before the game cache is known, keep whatever is cached rather than pounding the wiki
+		return now <= 0 || cachedRevision == now;
+	}
+
+	private Filepath cacheFile(String relative)
+	{
+		Filepath dir = cacheDir;
+		if (dir == null)
+		{
+			return null;
+		}
+		String[] parts = relative.split("/");
+		Filepath f = dir;
+		for (String part : parts)
+		{
+			f = f.joinSegment(part);
+		}
+		return f;
+	}
+
+	/** Title turned into a safe file name, with a hash so similar titles never collide. */
+	private static String fileNameFor(String title)
+	{
+		String safe = title.replaceAll("[^A-Za-z0-9._-]", "_");
+		if (safe.length() > 80)
+		{
+			safe = safe.substring(0, 80);
+		}
+		return safe + "-" + Integer.toHexString(title.hashCode()) + ".json";
+	}
+
+	private <T> T readJson(Filepath file, Class<T> type)
+	{
+		try
+		{
+			if (!file.isFile())
+			{
+				return null;
+			}
+			try (Reader reader = file.openBufferedReader())
+			{
+				return gson.fromJson(reader, type);
+			}
+		}
+		catch (IOException | RuntimeException e)
+		{
+			log.debug("Could not read cache file {}", file, e);
+			return null;
+		}
+	}
+
+	private void writeJson(Filepath file, Object value)
+	{
+		try
+		{
+			Filepath parent = file.getParent();
+			if (parent != null)
+			{
+				parent.createDirectories();
+			}
+			file.write(gson.toJson(value));
+		}
+		catch (IOException | RuntimeException e)
+		{
+			log.debug("Could not write cache file {}", file, e);
+		}
+	}
+
+	// ---- HTTP ----
 
 	private void get(HttpUrl url, Consumer<String> onError, Consumer<JsonObject> onJson)
 	{

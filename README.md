@@ -54,6 +54,9 @@ overwriting them. "Refresh all" re-fetches each tag's wiki page and flags tags w
 - Bank placeholders are not counted as owned.
 - Your bank contents are cached per account whenever the bank is opened or closed, so after the
   first session the plugin works straight away at login. Open the bank to refresh the cache.
+- Wiki responses are cached on disk in the plugin's folder, keyed by the game cache revision.
+  The wiki is only asked again after a game update, for a page not fetched before, or when
+  you press "Refresh all".
 - Gear data comes only from the OSRS Wiki. The plugin resolves item names to item ids locally
   from the game cache, so no other services are contacted.
 - The plugin cannot tell whether you meet an item's level or quest requirements. Items you own but
