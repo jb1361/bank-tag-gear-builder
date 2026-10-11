@@ -48,6 +48,8 @@ each tag's wiki page and flags tags whose page changed.
 
 - Potions are always tagged as exactly their 4-dose item whether or not you own them, so you can
   restock without rebuilding the tag.
+- Charged items with numbered variants (Amulet of glory, Ring of dueling, Combat bracelet and so
+  on) are tagged as exactly the highest-charge one you own, so the tab shows one of them.
 - Runes the wiki puts in the rune pouch are always included and kept on their own row below the
   inventory. A combination rune you don't own is replaced by its two elemental runes. Runes the
   wiki lists directly in the inventory stay with the inventory items.

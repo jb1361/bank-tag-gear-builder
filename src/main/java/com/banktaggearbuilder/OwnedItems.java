@@ -20,9 +20,14 @@ public class OwnedItems
 {
 	private final ItemManager itemManager;
 
+	/** Exact (un-noted) item id -> quantity, per container. */
 	private final Map<Integer, Integer> bank = new HashMap<>();
 	private final Map<Integer, Integer> inventory = new HashMap<>();
 	private final Map<Integer, Integer> equipment = new HashMap<>();
+	/** Base-variation id -> quantity, derived from the maps above. */
+	private final Map<Integer, Integer> bankVariants = new HashMap<>();
+	private final Map<Integer, Integer> inventoryVariants = new HashMap<>();
+	private final Map<Integer, Integer> equipmentVariants = new HashMap<>();
 
 	/** True once the bank contents are known, from the live bank or a saved cache. */
 	@Getter
@@ -57,42 +62,55 @@ public class OwnedItems
 	public boolean update(int containerId, ItemContainer container)
 	{
 		Map<Integer, Integer> target;
+		Map<Integer, Integer> variants;
 		switch (containerId)
 		{
 			case InventoryID.BANK:
 				target = bank;
+				variants = bankVariants;
 				bankSeen = true;
 				bankFromCache = false;
 				break;
 			case InventoryID.INV:
 				target = inventory;
+				variants = inventoryVariants;
 				break;
 			case InventoryID.WORN:
 				target = equipment;
+				variants = equipmentVariants;
 				break;
 			default:
 				return false;
 		}
 
 		target.clear();
-		if (container == null)
+		if (container != null)
 		{
-			return true;
-		}
-		for (Item item : container.getItems())
-		{
-			if (item == null || item.getId() <= 0 || item.getQuantity() <= 0)
+			for (Item item : container.getItems())
 			{
-				continue;
+				if (item == null || item.getId() <= 0 || item.getQuantity() <= 0)
+				{
+					continue;
+				}
+				// Bank placeholders stand in for items the player no longer has
+				if (itemManager.getItemComposition(item.getId()).getPlaceholderTemplateId() != -1)
+				{
+					continue;
+				}
+				target.merge(itemManager.canonicalize(item.getId()), item.getQuantity(), Integer::sum);
 			}
-			// Bank placeholders stand in for items the player no longer has
-			if (itemManager.getItemComposition(item.getId()).getPlaceholderTemplateId() != -1)
-			{
-				continue;
-			}
-			target.merge(canonical(itemManager, item.getId()), item.getQuantity(), Integer::sum);
 		}
+		rebuildVariants(target, variants);
 		return true;
+	}
+
+	private static void rebuildVariants(Map<Integer, Integer> exact, Map<Integer, Integer> variants)
+	{
+		variants.clear();
+		for (Map.Entry<Integer, Integer> e : exact.entrySet())
+		{
+			variants.merge(ItemVariationMapping.map(e.getKey()), e.getValue(), Integer::sum);
+		}
 	}
 
 	public void clear()
@@ -100,9 +118,24 @@ public class OwnedItems
 		bank.clear();
 		inventory.clear();
 		equipment.clear();
+		bankVariants.clear();
+		inventoryVariants.clear();
+		equipmentVariants.clear();
 		bankSeen = false;
 		bankFromCache = false;
 		cacheSavedAt = 0;
+	}
+
+	/**
+	 * Whether this exact item id (a specific charge or dose) is owned.
+	 */
+	public boolean ownsExact(int exactId, boolean includeInventoryAndEquipment)
+	{
+		if (bank.containsKey(exactId))
+		{
+			return true;
+		}
+		return includeInventoryAndEquipment && (inventory.containsKey(exactId) || equipment.containsKey(exactId));
 	}
 
 	/**
@@ -161,6 +194,7 @@ public class OwnedItems
 			}
 			bank.clear();
 			bank.putAll(loaded);
+			rebuildVariants(bank, bankVariants);
 			cacheSavedAt = savedAt;
 		}
 		catch (RuntimeException e)
@@ -172,12 +206,15 @@ public class OwnedItems
 		return true;
 	}
 
+	/**
+	 * Whether any variant of this base-variation id is owned.
+	 */
 	public boolean owns(int canonicalId, boolean includeInventoryAndEquipment)
 	{
-		if (bank.containsKey(canonicalId))
+		if (bankVariants.containsKey(canonicalId))
 		{
 			return true;
 		}
-		return includeInventoryAndEquipment && (inventory.containsKey(canonicalId) || equipment.containsKey(canonicalId));
+		return includeInventoryAndEquipment && (inventoryVariants.containsKey(canonicalId) || equipmentVariants.containsKey(canonicalId));
 	}
 }

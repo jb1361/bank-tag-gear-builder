@@ -19,8 +19,10 @@ public class BuildResult
 		EquipmentSlot slot;
 		int rank;
 		String name;
-		/** The item id to tag. Variation-tagging makes every variant of this item match. */
+		/** The item id to tag. Unless exactVariant is set, every variant of this item matches. */
 		int itemId;
+		/** Tag exactly this id (used for charged items such as Amulet of glory(6)). */
+		boolean exactVariant;
 	}
 
 	@Value
@@ -75,6 +77,13 @@ public class BuildResult
 	public Set<Integer> getExactItemIds()
 	{
 		Set<Integer> ids = new LinkedHashSet<>();
+		for (SlotPick pick : picks)
+		{
+			if (pick.isExactVariant())
+			{
+				ids.add(pick.getItemId());
+			}
+		}
 		for (InventoryPick pick : inventory)
 		{
 			if (pick.isExactVariant())
