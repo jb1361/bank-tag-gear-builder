@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -33,8 +34,8 @@ import okhttp3.Request;
 import okhttp3.Response;
 
 /**
- * Talks to the OSRS Wiki MediaWiki API, with an on-disk cache keyed by the game cache
- * revision so the wiki is only asked again after a game update (or on an explicit refresh).
+ * Talks to the OSRS Wiki MediaWiki API, with an on-disk cache keyed by the client revision
+ * so the wiki is only asked again after a client update (or on an explicit refresh).
  * Callbacks run on a background thread, never the client thread.
  */
 @Slf4j
@@ -49,12 +50,18 @@ public class WikiClient
 	private static final String CONTENT_FILE = "content.json";
 	private static final String STRATEGIES_SUFFIX = "/Strategies";
 	private static final String PAGES_DIR = "pages";
+	/**
+	 * New content is often released without a client revision change, so the content list
+	 * also expires after this long.
+	 */
+	private static final long CONTENT_MAX_AGE_MS = TimeUnit.DAYS.toMillis(21);
 
 	/** On-disk form of the content list. */
 	@Data
 	private static class CachedContent
 	{
 		private int revision;
+		private long fetchedAt;
 		private List<String> titles = new ArrayList<>();
 	}
 
@@ -93,7 +100,7 @@ public class WikiClient
 		this.cacheDir = dir;
 	}
 
-	/** The game cache revision, which changes with every game update. */
+	/** The client revision. Content updates often ship without changing it. */
 	private int gameRevision()
 	{
 		return client.getRevision();
@@ -104,7 +111,7 @@ public class WikiClient
 	/**
 	 * Lists every main-namespace page that uses the Recommended equipment template, except
 	 * Combat Achievements task pages. Served from the cache unless the game has updated since
-	 * it was written, or {@code force} is set.
+	 * it was written, it is older than {@link #CONTENT_MAX_AGE_MS}, or {@code force} is set.
 	 */
 	public void listContent(boolean force, Consumer<List<ContentPage>> onSuccess, Consumer<String> onError)
 	{
@@ -114,7 +121,8 @@ public class WikiClient
 			if (!force && file != null)
 			{
 				CachedContent cached = readJson(file, CachedContent.class);
-				if (cached != null && isCurrent(cached.getRevision()))
+				if (cached != null && isCurrent(cached.getRevision())
+					&& System.currentTimeMillis() - cached.getFetchedAt() < CONTENT_MAX_AGE_MS)
 				{
 					List<ContentPage> pages = new ArrayList<>();
 					for (String title : cached.getTitles())
@@ -134,6 +142,7 @@ public class WikiClient
 				{
 					CachedContent cached = new CachedContent();
 					cached.setRevision(gameRevision());
+					cached.setFetchedAt(System.currentTimeMillis());
 					for (ContentPage p : pages)
 					{
 						cached.getTitles().add(p.getTitle());

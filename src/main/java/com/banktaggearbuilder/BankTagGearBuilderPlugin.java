@@ -274,9 +274,12 @@ public class BankTagGearBuilderPlugin extends Plugin
 
 	// ---- Called from the side panel (Swing thread). Callbacks are delivered on the Swing thread. ----
 
-	public void loadContent(Consumer<List<ContentPage>> onSuccess, Consumer<String> onError)
+	/**
+	 * @param force skip the cached list and download it from the wiki, replacing the cache
+	 */
+	public void loadContent(boolean force, Consumer<List<ContentPage>> onSuccess, Consumer<String> onError)
 	{
-		wikiClient.listContent(false,
+		wikiClient.listContent(force,
 			pages -> SwingUtilities.invokeLater(() -> onSuccess.accept(pages)),
 			err -> SwingUtilities.invokeLater(() -> onError.accept(err)));
 	}

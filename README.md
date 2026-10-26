@@ -58,11 +58,11 @@ overwriting them. "Refresh all" re-fetches each tag's wiki page and flags tags w
 - Bank placeholders are not counted as owned.
 - Your bank contents are cached per account whenever the bank is opened or closed, so after the
   first session the plugin works straight away at login. Open the bank to refresh the cache.
-- Wiki responses are cached on disk in the plugin's folder, keyed by the game cache revision.
-  The wiki is only asked again after a game update, for a page not fetched before, when you
-  press "Refresh all", or when you press "Sync from wiki". That button appears beside
-  "1. Pick content" once content is picked, asks for confirmation, and then downloads just
-  that page again.
+- Wiki responses are cached on disk in the plugin's folder, keyed by the client revision.
+  The wiki is only asked again after a client update, for a page not fetched before, when the
+  content list is three weeks old, when you press "Refresh all", or when you press "Sync from
+  wiki". That button appears beside "1. Pick content" once content is picked, asks for
+  confirmation, and then downloads that page and the content list again.
 - Where a page and its "/Strategies" subpage would both be listed under the same name, only
   the main page is shown.
 - Gear data comes only from the OSRS Wiki. The plugin resolves item names to item ids locally

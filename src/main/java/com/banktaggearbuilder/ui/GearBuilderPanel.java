@@ -132,9 +132,9 @@ public class GearBuilderPanel extends PluginPanel
 		contentHeader.setBackground(ColorScheme.DARK_GRAY_COLOR);
 		contentHeader.add(header("1. Pick content"), BorderLayout.WEST);
 		syncButton.setFont(FontManager.getRunescapeSmallFont());
-		syncButton.setToolTipText("Download this page from the OSRS Wiki again instead of using the saved copy");
+		syncButton.setToolTipText("Download this page and the content list from the OSRS Wiki again instead of using the saved copies");
 		syncButton.addActionListener(e -> confirmSync());
-		// Shown once content is picked, since it syncs only that page
+		// Shown once content is picked, since it syncs that page (along with the list)
 		syncButton.setVisible(false);
 		contentHeader.add(syncButton, BorderLayout.EAST);
 		body.add(contentHeader);
@@ -273,22 +273,36 @@ public class GearBuilderPanel extends PluginPanel
 	public void onActivate()
 	{
 		updateStatusLabel();
-		if (allContent.isEmpty() && !contentLoading)
+		if (allContent.isEmpty())
 		{
-			contentLoading = true;
-			setWrapped(statusLabel, "Loading content list from the OSRS Wiki...");
-			plugin.loadContent(pages ->
-			{
-				contentLoading = false;
-				allContent = pages;
-				filterContent();
-				updateStatusLabel();
-			}, err ->
-			{
-				contentLoading = false;
-				setWrapped(statusLabel, err);
-			});
+			loadContentList(false);
 		}
+	}
+
+	/**
+	 * Fills the content list.
+	 *
+	 * @param force skip the saved list and download it from the wiki
+	 */
+	private void loadContentList(boolean force)
+	{
+		if (contentLoading)
+		{
+			return;
+		}
+		contentLoading = true;
+		setWrapped(statusLabel, "Loading content list from the OSRS Wiki...");
+		plugin.loadContent(force, pages ->
+		{
+			contentLoading = false;
+			allContent = pages;
+			filterContent();
+			updateStatusLabel();
+		}, err ->
+		{
+			contentLoading = false;
+			setWrapped(statusLabel, err);
+		});
 	}
 
 	public void onConfigChanged()
@@ -380,12 +394,13 @@ public class GearBuilderPanel extends PluginPanel
 			return;
 		}
 		int choice = JOptionPane.showConfirmDialog(this,
-			"Download " + page.getDisplayName() + " from the OSRS Wiki again?" + System.lineSeparator()
-				+ "The saved copy is replaced with the current wiki page.",
+			"Download " + page.getDisplayName() + " and the content list from the OSRS Wiki again?" + System.lineSeparator()
+				+ "The saved copies are replaced with the current wiki versions.",
 			"Sync from wiki", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
 		if (choice == JOptionPane.YES_OPTION)
 		{
 			loadPage(page, true);
+			loadContentList(true);
 		}
 	}
 
