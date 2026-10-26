@@ -42,6 +42,8 @@ import okhttp3.Response;
 public class WikiClient
 {
 	private static final HttpUrl API = HttpUrl.parse("https://oldschool.runescape.wiki/api.php");
+	/** Names this plugin to the wiki; RuneLite's client prefixes it with its own RuneLite/version agent. */
+	private static final String USER_AGENT = "BankTagGearBuilder (+https://github.com/jb1361/bank-tag-gear-builder)";
 	private static final String EQUIPMENT_TEMPLATE = "Template:Recommended equipment";
 	private static final String COMBAT_ACHIEVEMENTS_CATEGORY = "Category:Combat Achievements";
 	private static final String CONTENT_FILE = "content.json";
@@ -402,7 +404,10 @@ public class WikiClient
 
 	private void get(HttpUrl url, Consumer<String> onError, Consumer<JsonObject> onJson)
 	{
-		Request request = new Request.Builder().url(url).build();
+		Request request = new Request.Builder()
+			.url(url)
+			.header("User-Agent", USER_AGENT)
+			.build();
 		okHttpClient.newCall(request).enqueue(new Callback()
 		{
 			@Override
